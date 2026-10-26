@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Jitta Partner</string>
+    <string name="title_activity_main">Jitta Partner</string>
+    <string name="package_name">com.xiadot.jittadrives.driver</string>
+    <string name="custom_url_scheme">com.xiadot.jittadrives.driver</string>
+</resources>

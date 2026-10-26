@@ -1,0 +1,6 @@
+include ':capacitor-android'
+def capDir = new File('../node_modules/@capacitor/android/capacitor')
+if (!capDir.exists()) {
+    capDir = new File('C:/Users/Admin/Downloads/jitadriverslatest/redtaxi/jittadrives/node_modules/@capacitor/android/capacitor')
+}
+project(':capacitor-android').projectDir = capDir

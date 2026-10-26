@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+staging_*/
+playwright-report/
+test-results/
+
+# Large binaries & archives
+*.apk
+*.aab
+*.zip
+*.tar.gz
+*.rar
+*.7z
+*.webm
+*.mp4
+
+# Android Gradle builds
+.gradle/
+captures/
+android-customer/app/build/
+android-driver/app/build/
+**/build/
+local.properties
+.cxx/
+
+# IDE & OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

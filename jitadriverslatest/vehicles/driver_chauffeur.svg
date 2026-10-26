@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120" width="160" height="120">
+  <defs>
+    <linearGradient id="driverBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFF7ED" />
+      <stop offset="100%" stop-color="#FFEDD5" />
+    </linearGradient>
+    <linearGradient id="driverOrange" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#EA580C" />
+      <stop offset="100%" stop-color="#C2410C" />
+    </linearGradient>
+    <linearGradient id="badgeGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FBBF24" />
+      <stop offset="100%" stop-color="#D97706" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background Card -->
+  <rect width="160" height="120" rx="16" fill="url(#driverBg)" />
+
+  <!-- Steering Wheel Ring (Right) -->
+  <circle cx="106" cy="62" r="30" fill="none" stroke="#EA580C" stroke-width="4.5" stroke-opacity="0.25" />
+  <circle cx="106" cy="62" r="24" fill="none" stroke="#EA580C" stroke-width="2" stroke-opacity="0.15" />
+  <circle cx="106" cy="62" r="6" fill="#EA580C" fill-opacity="0.3" />
+
+  <!-- Driver Avatar / Silhouette -->
+  <!-- Shoulders & Coat -->
+  <path d="M26 106 C26 84, 42 74, 64 74 C86 74, 102 84, 102 106 Z" fill="url(#driverOrange)" />
+  
+  <!-- White Collar & Tie -->
+  <polygon points="64,74 56,86 72,86" fill="#FFFFFF" />
+  <polygon points="61,86 67,86 65,102 63,102" fill="#9A3412" />
+
+  <!-- Driver Head -->
+  <circle cx="64" cy="52" r="17" fill="#FDBA74" />
+
+  <!-- Professional Driver Cap (Chauffeur Peaked Cap) -->
+  <path d="M44 48 C44 38, 52 32, 64 32 C76 32, 84 38, 84 48 Z" fill="#1E293B" />
+  <!-- Cap Visor / Peak -->
+  <path d="M40 48 Q64 45 88 48 C86 52, 42 52, 40 48 Z" fill="#0F172A" />
+  <rect x="44" y="46" width="40" height="3" fill="#D97706" rx="1.5" />
+  <!-- Cap Gold Insignia Badge -->
+  <circle cx="64" cy="42" r="3.5" fill="url(#badgeGold)" />
+
+  <!-- Verified Shield Checkmark (Top Right) -->
+  <g transform="translate(122, 14)">
+    <circle cx="12" cy="12" r="12" fill="#22C55E" />
+    <path d="M7 12 L10.5 15.5 L17 9" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+</svg>

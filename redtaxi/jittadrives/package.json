@@ -1,0 +1,44 @@
+{
+  "name": "redtaxi",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:customer": "vite --port 5174",
+    "dev:driver": "vite --port 5175",
+    "build": "tsc -b && vite build && powershell -Command \"Copy-Item -Path 'dist/index.html' -Destination '../../jitadriverslatest/index.html' -Force; Copy-Item -Path 'dist/assets/*' -Destination '../../jitadriverslatest/assets/' -Force -Recurse\"",
+    "build:customer": "vite build --mode customer && powershell -Command \"Copy-Item -Path 'dist/*' -Destination 'android-customer/app/src/main/assets/public/' -Recurse -Force\"",
+    "build:driver": "vite build --mode driver && powershell -Command \"Copy-Item -Path 'dist/*' -Destination 'android-driver/app/src/main/assets/public/' -Recurse -Force\"",
+    "lint": "oxlint",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/cli": "^8.5.3",
+    "@capacitor/core": "^8.5.3",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/leaflet": "^1.9.22",
+    "clsx": "^2.1.1",
+    "firebase": "^13.0.0",
+    "framer-motion": "^13.1.1",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^1.39.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.3",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^4.3.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.1.0",
+    "oxlint": "^1.79.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.2.2"
+  }
+}

@@ -1,0 +1,17 @@
+export type AdminTab =
+  | 'DASHBOARD'
+  | 'LIVE_MAP'
+  | 'CUSTOMERS'
+  | 'DRIVERS'
+  | 'DRIVER_APPROVALS'
+  | 'VEHICLES'
+  | 'BOOKINGS'
+  | 'FARE_MGMT'
+  | 'COUPONS'
+  | 'OFFERS'
+  | 'WALLETS'
+  | 'PAYMENTS'
+  | 'SUPPORT'
+  | 'REPORTS'
+  | 'NOTIFICATIONS'
+  | 'SETTINGS';

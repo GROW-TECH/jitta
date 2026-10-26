@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Delete Account & Data - Jitta Drives</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased selection:bg-[#E85D04]/20 selection:text-[#E85D04]">
+  <!-- Header -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+    <div class="max-w-3xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-3">
+        <img src="/logo.png" alt="Jitta Drives" class="w-10 h-10 object-contain rounded-xl border border-slate-100 p-1 shadow-xs">
+        <span class="text-xl font-black text-slate-900 tracking-tight">Jitta<span class="text-[#E85D04]">Drives</span></span>
+      </a>
+      <a href="/" class="text-xs font-bold text-slate-600 hover:text-[#E85D04] transition-colors border border-slate-200 rounded-full px-4 py-2 hover:border-[#E85D04]">
+        Back to Home
+      </a>
+    </div>
+  </header>
+
+  <!-- Content Container -->
+  <main class="max-w-3xl mx-auto px-4 sm:px-6 py-12">
+    <div class="bg-white rounded-3xl p-8 sm:p-10 shadow-sm border border-slate-200/80 space-y-6">
+      <div>
+        <span class="text-xs font-black uppercase tracking-wider text-rose-600 bg-rose-50 px-3 py-1 rounded-full border border-rose-200">User Rights & Privacy</span>
+        <h1 class="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight mt-3">Request Account & Data Deletion</h1>
+        <p class="text-xs text-slate-500 font-medium mt-1">In compliance with Google Play Developer Policy and user privacy standards.</p>
+      </div>
+
+      <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-900 space-y-2">
+        <p class="font-bold">What happens when you request account deletion?</p>
+        <ul class="list-disc pl-4 space-y-1 text-amber-800">
+          <li>Your personal profile (name, phone number, saved addresses) will be permanently purged from our active database.</li>
+          <li>Your active wallet balances or discount coupons associated with this number will become void.</li>
+          <li>Completed trip tax invoices are archived as required by Indian financial regulations for statutory auditing.</li>
+        </ul>
+      </div>
+
+      <!-- Deletion Request Form -->
+      <form class="space-y-4 pt-2" onsubmit="event.preventDefault(); document.getElementById('successBanner').classList.remove('hidden'); document.getElementById('submitBtn').disabled = true;">
+        <div>
+          <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Registered Mobile Number</label>
+          <input
+            type="tel"
+            required
+            placeholder="+91 Enter your 10-digit number"
+            class="w-full bg-slate-50 border border-slate-200 focus:border-[#E85D04] focus:bg-white text-slate-900 text-sm font-semibold rounded-2xl py-3.5 px-4 outline-none transition-all placeholder:text-slate-400"
+          >
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Account Type</label>
+          <select class="w-full bg-slate-50 border border-slate-200 focus:border-[#E85D04] focus:bg-white text-slate-900 text-sm font-semibold rounded-2xl py-3.5 px-4 outline-none transition-all">
+            <option value="customer">Passenger / Customer Account (Jitta Drives)</option>
+            <option value="driver">Driver Partner Account (Jitta Captain)</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Reason for Deletion (Optional)</label>
+          <textarea
+            rows="3"
+            placeholder="Please share any feedback or reasons for closing your account..."
+            class="w-full bg-slate-50 border border-slate-200 focus:border-[#E85D04] focus:bg-white text-slate-900 text-sm font-semibold rounded-2xl py-3 px-4 outline-none transition-all placeholder:text-slate-400"
+          ></textarea>
+        </div>
+
+        <button
+          id="submitBtn"
+          type="submit"
+          class="w-full bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-sm py-4 rounded-2xl shadow-md transition-all active:scale-[0.98]"
+        >
+          Submit Account Deletion Request
+        </button>
+
+        <div id="successBanner" class="hidden bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl p-4 text-xs font-bold text-center">
+          Your request has been registered. An SMS confirmation with a verification OTP will be sent to your phone within 24 hours to finalize account removal.
+        </div>
+      </form>
+
+      <div class="pt-4 border-t border-slate-100 text-xs text-slate-500 text-center">
+        Prefer to contact support directly? Call <a href="tel:+918220444321" class="text-[#E85D04] font-bold">+91 82204 44321</a> or email <a href="mailto:Jittadrives@gmail.com" class="text-[#E85D04] font-bold">Jittadrives@gmail.com</a>.
+      </div>
+    </div>
+  </main>
+</body>
+</html>
