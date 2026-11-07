@@ -173,7 +173,7 @@ class DriverModel extends BaseModel
             if (isset($dCols['rating_avg'])) $driverData['rating_avg'] = 5.00;
             if (isset($dCols['trips_count'])) $driverData['trips_count'] = 0;
             if (isset($dCols['total_rides'])) $driverData['total_rides'] = 0;
-            if (isset($dCols['commission_percent'])) $driverData['commission_percent'] = 15.00;
+            if (isset($dCols['commission_percent'])) $driverData['commission_percent'] = 10.00;
             if (isset($dCols['total_earnings'])) $driverData['total_earnings'] = 0.00;
 
             // Only insert columns that exist
@@ -200,10 +200,10 @@ class DriverModel extends BaseModel
             $sql = "INSERT INTO `drivers` (" . implode(', ', $insertFields) . ") VALUES (" . implode(', ', $placeholders) . ")";
             $this->query($sql, $values);
 
-            // Initialize driver wallet with welcome balance (allows immediate ride acceptance)
+            // Initialize driver wallet with starter balance (0.00 for production, requires recharge)
             $wCols = $this->getExistingColumns('driver_wallets');
             $walletId = Security::generateUUID();
-            $initialBalance = isset($data['balance']) ? (float)$data['balance'] : 500.00;
+            $initialBalance = isset($data['balance']) ? (float)$data['balance'] : 0.00;
             $wData = array(
                 'id' => $walletId,
                 'driver_id' => $id,
@@ -968,10 +968,10 @@ class DriverModel extends BaseModel
             return array('error' => 'Driver is offline. Please go online first', 'code' => 400);
         }
 
-        // Check prepaid wallet balance (minimum ₹50.00 required to accept rides)
+        // Check prepaid wallet balance (temporary 0.00 for ₹1 live test, change to 50.00 in production)
         $wallet = $this->getWalletDetails($driverId);
         $walletBalance = $wallet ? (float)$wallet['balance'] : 0.0;
-        $minRequiredBalance = 50.00;
+        $minRequiredBalance = 0.00;
         if ($walletBalance < $minRequiredBalance) {
             $this->safeInsertNotification(
                 $driverId,
@@ -1364,8 +1364,8 @@ class DriverModel extends BaseModel
         if ($newStatus === 'COMPLETED') {
             if ($currentStatus === 'COMPLETED') {
                 $totalFare = (float)$booking['total_fare'];
-                $driverEarnings = round($totalFare * 0.85, 2);
-                $commissionAmount = round($totalFare * 0.15, 2);
+                $driverEarnings = round($totalFare * 0.90, 2);
+                $commissionAmount = round($totalFare * 0.10, 2);
                 return array(
                     'booking_id' => $bookingId,
                     'status' => 'COMPLETED',
@@ -1439,7 +1439,17 @@ class DriverModel extends BaseModel
 
                 // 4. Calculate driver earnings
                 $driver = $this->findById($driverId);
-                $commissionPct = isset($driver['commission_percent']) ? (float)$driver['commission_percent'] : 15.00;
+                $commissionPct = 10.00;
+                try {
+                    $settingRow = $this->fetchOne("SELECT v FROM system_settings WHERE k = 'platform_commission'");
+                    if ($settingRow && is_numeric($settingRow['v'])) {
+                        $commissionPct = (float)$settingRow['v'];
+                    } elseif (isset($driver['commission_percent']) && (float)$driver['commission_percent'] > 0) {
+                        $commissionPct = (float)$driver['commission_percent'];
+                    }
+                } catch (\Exception $e) {
+                    $commissionPct = isset($driver['commission_percent']) ? (float)$driver['commission_percent'] : 10.00;
+                }
                 $commissionAmount = round($totalFare * ($commissionPct / 100.0), 2);
                 $driverEarnings = round($totalFare - $commissionAmount, 2);
 
@@ -1812,11 +1822,9 @@ class DriverModel extends BaseModel
             $walletId = Security::generateUUID();
             $this->execute(
                 "INSERT INTO `driver_wallets` (`id`, `driver_id`, `balance`, `today_earnings`, `today_trips`, `total_commission_paid`, `is_active`)
-                 VALUES (?, ?, 500.00, 0.00, 0, 0.00, 1)",
+                 VALUES (?, ?, 0.00, 0.00, 0, 0.00, 1)",
                 array($walletId, $driverId)
             );
-        } elseif ((float)$wallet['balance'] <= 0) {
-            $this->rechargeWallet($driverId, 500.00, 'UPI', 'SUCCESS', 'INSTANT_APPROVAL_GRANT');
         }
 
         return $this->findById($driverId);
@@ -1843,15 +1851,15 @@ class DriverModel extends BaseModel
 
         $bookingId = Security::generateUUID();
         $otp = (string)mt_rand(1000, 9999);
-        $distanceKm = 3.8;
-        $durationMin = 12;
-        $fare = ($vehicleCategory === 'Bike' || strpos(strtolower($vehicleCategory), 'bike') !== false) ? 45.00 : 95.00;
+        $distanceKm = 1.0;
+        $durationMin = 5;
+        $fare = 1.00; // Exact ₹1 test ride
 
         $sql = "INSERT INTO `bookings` (`id`, `customer_id`, `city_id`, `ride_type`, `vehicle_category`,
                                         `status`, `distance_km`, `duration_min`, `base_fare`, `distance_fare`,
                                         `time_fare`, `platform_fee`, `tax`, `total_fare`, `payment_method`,
                                         `start_otp`, `created_at`, `updated_at`)
-                VALUES (?, ?, 1, 'CITY', ?, 'SEARCHING', ?, ?, ?, ?, ?, 5.00, 2.50, ?, 'CASH', ?, NOW(), NOW())";
+                VALUES (?, ?, 1, 'CITY', ?, 'SEARCHING', ?, ?, 1.00, 0.00, 0.00, 0.15, 0.05, 1.00, 'CASH', ?, NOW(), NOW())";
 
         $this->execute($sql, array(
             $bookingId,
@@ -1859,10 +1867,6 @@ class DriverModel extends BaseModel
             $vehicleCategory,
             $distanceKm,
             $durationMin,
-            $fare * 0.4,
-            $fare * 0.5,
-            $fare * 0.1,
-            $fare,
             $otp
         ));
 

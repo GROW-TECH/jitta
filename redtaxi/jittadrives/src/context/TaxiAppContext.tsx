@@ -126,7 +126,7 @@ export function mapBackendDriverToProfile(d: any): DriverProfile {
     approvalStatus: (d.approval_status || 'APPROVED') as any,
     todayEarnings: Number(d.today_earnings || 0),
     completedTripsToday: Number(d.today_trips || d.completed_trips_today || 0),
-    commission: Number(d.commission_percent || d.commission || 15),
+    commission: Number(d.commission_percent || d.commission || 10),
     documents: {
       license: d.documents?.license || 'Verified',
       rc: d.documents?.rc || 'Verified',
@@ -1591,7 +1591,7 @@ export const TaxiAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
       0;
     const resolvedTotalFare = Math.round(Number(rawFare));
     const resolvedEarnings = Math.round(resolvedTotalFare * 0.85);
-    const resolvedCommission = Math.round(resolvedTotalFare * 0.15);
+    const resolvedCommission = Math.round(resolvedTotalFare * 0.10);
     const resolvedPaymentMethod = String(baseRide.payment_method || baseRide.paymentMethod || 'CASH').toUpperCase();
     const pickupObj = baseRide.pickup || baseRide.locations?.find((l: any) => l.type === 'PICKUP') || activeBooking?.pickup;
     const dropObj = baseRide.drop || baseRide.locations?.find((l: any) => l.type === 'DROP' || l.type === 'DROPOFF') || activeBooking?.drop;
@@ -2113,7 +2113,7 @@ export const TaxiAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
             todayEarnings: parseFloat(d.today_earnings) || 0,
             joinedDate: d.created_at ? d.created_at.substring(0, 10) : '2026-01-01',
             completedTripsToday: parseInt(d.today_trips) || 0,
-            commission: parseFloat(d.commission_percent) || 15.0,
+            commission: parseFloat(d.commission_percent) || 10.0,
             documents: { license: 'Verified', rc: 'Verified', insurance: 'Verified', permit: 'Verified' },
             currentLocation: { name: 'Coimbatore Hub', address: 'Gandhipuram, Coimbatore', lat: parseFloat(d.current_lat) || 11.0168, lng: parseFloat(d.current_lng) || 76.9558 },
           }));

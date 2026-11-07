@@ -1,5 +1,201 @@
 package com.xiadot.jittadrives.driver;
 
-import com.getcapacitor.BridgeActivity;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.Context;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Color;
+import android.media.AudioAttributes;
+import android.media.RingtoneManager;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebView;
 
-public class MainActivity extends BridgeActivity {}
+import androidx.core.app.ActivityCompat;
+import androidx.core.app.NotificationCompat;
+import androidx.core.content.ContextCompat;
+
+import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.BridgeWebViewClient;
+
+public class MainActivity extends BridgeActivity {
+    private static final String CHANNEL_ID = "jitta_captain_alerts";
+    private static final String CHANNEL_NAME = "Jitta Captain Urgent Alerts";
+    private static final int NOTIF_REQ_CODE = 101;
+
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        createNotificationChannel();
+        requestNotificationPermission();
+
+        try {
+            if (this.bridge != null && this.bridge.getWebView() != null) {
+                WebView webView = this.bridge.getWebView();
+
+                // Spoof UserAgent to Chrome Mobile so Razorpay Checkout JS enables UPI options
+                String chromeUa = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36";
+                webView.getSettings().setUserAgentString(chromeUa);
+                webView.getSettings().setDomStorageEnabled(true);
+                webView.getSettings().setJavaScriptEnabled(true);
+
+                // Add Native Android Notification Bridge for web JavaScript
+                webView.addJavascriptInterface(new NativeNotificationBridge(this), "NativeNotificationBridge");
+
+                // Use BridgeWebViewClient to preserve Capacitor bridge while intercepting payment intents
+                this.bridge.getWebView().setWebViewClient(new BridgeWebViewClient(this.bridge) {
+                    @Override
+                    public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                        if (request != null && request.getUrl() != null) {
+                            String url = request.getUrl().toString();
+                            if (handlePaymentIntent(url)) {
+                                return true;
+                            }
+                        }
+                        return super.shouldOverrideUrlLoading(view, request);
+                    }
+
+                    @Override
+                    public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                        if (url != null && handlePaymentIntent(url)) {
+                            return true;
+                        }
+                        return super.shouldOverrideUrlLoading(view, url);
+                    }
+                });
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                        new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, NOTIF_REQ_CODE);
+            }
+        }
+    }
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                    CHANNEL_ID,
+                    CHANNEL_NAME,
+                    NotificationManager.IMPORTANCE_HIGH
+            );
+            channel.setDescription("Urgent Driver Balance and Ride Alerts");
+            channel.enableLights(true);
+            channel.setLightColor(Color.RED);
+            channel.enableVibration(true);
+            channel.setVibrationPattern(new long[]{0, 400, 200, 400, 200, 400});
+
+            Uri defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+            AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .build();
+            channel.setSound(defaultSoundUri, audioAttributes);
+
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.createNotificationChannel(channel);
+            }
+        }
+    }
+
+    public void triggerSystemNotification(String title, String message) {
+        try {
+            Intent intent = new Intent(this, MainActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            intent.putExtra("OPEN_SCREEN", "DRIVER_WALLET");
+
+            PendingIntent pendingIntent = PendingIntent.getActivity(
+                    this,
+                    (int) System.currentTimeMillis(),
+                    intent,
+                    PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE
+            );
+
+            Uri defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+
+            Bitmap largeIcon = null;
+            try {
+                largeIcon = BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher);
+            } catch (Exception ignored) {}
+
+            NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
+                    .setSmallIcon(R.mipmap.ic_launcher)
+                    .setContentTitle(title != null && !title.isEmpty() ? title : "Jitta Captain Alert")
+                    .setContentText(message)
+                    .setStyle(new NotificationCompat.BigTextStyle().bigText(message))
+                    .setPriority(NotificationCompat.PRIORITY_MAX)
+                    .setCategory(NotificationCompat.CATEGORY_ALARM)
+                    .setAutoCancel(true)
+                    .setSound(defaultSoundUri)
+                    .setVibrate(new long[]{0, 400, 200, 400, 200, 400})
+                    .setColor(Color.parseColor("#E85D04"))
+                    .setContentIntent(pendingIntent);
+
+            if (largeIcon != null) {
+                builder.setLargeIcon(largeIcon);
+            }
+
+            NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (manager != null) {
+                manager.notify((int) (System.currentTimeMillis() % 100000), builder.build());
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public class NativeNotificationBridge {
+        private final Context context;
+
+        public NativeNotificationBridge(Context context) {
+            this.context = context;
+        }
+
+        @JavascriptInterface
+        public void showNotification(String title, String message) {
+            triggerSystemNotification(title, message);
+        }
+    }
+
+    private boolean handlePaymentIntent(String url) {
+        if (url == null) return false;
+        if (url.startsWith("upi://") ||
+            url.startsWith("intent://") ||
+            url.startsWith("gpay://") ||
+            url.startsWith("phonepe://") ||
+            url.startsWith("paytmmp://")) {
+            try {
+                Intent intent;
+                if (url.startsWith("intent://")) {
+                    intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
+                } else {
+                    intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                }
+                if (intent != null) {
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(intent);
+                    return true;
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+        return false;
+    }
+}

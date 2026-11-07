@@ -82,7 +82,7 @@ class BookingModel extends BaseModel
             );
             $walletId = Security::generateUUID();
             $this->execute(
-                "INSERT IGNORE INTO `customer_wallets` (`id`, `customer_id`, `balance`, `is_active`) VALUES (?, ?, 500.00, 1)",
+                "INSERT IGNORE INTO `customer_wallets` (`id`, `customer_id`, `balance`, `is_active`) VALUES (?, ?, 0.00, 1)",
                 array($walletId, $id)
             );
         } catch (Exception $e) {

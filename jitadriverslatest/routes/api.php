@@ -13,6 +13,7 @@ require_once dirname(__DIR__) . '/controllers/DriverController.php';
 require_once dirname(__DIR__) . '/controllers/BookingController.php';
 require_once dirname(__DIR__) . '/controllers/LookupController.php';
 require_once dirname(__DIR__) . '/controllers/AdminController.php';
+require_once dirname(__DIR__) . '/controllers/PaymentController.php';
 
 $router = new Router('/api/v1');
 
@@ -107,6 +108,10 @@ $router->get('/driver/rides/history',             array('DriverController', 'get
 // Driver Wallet & Earnings
 $router->get('/driver/wallet',                    array('DriverController', 'getWallet'));
 $router->post('/driver/wallet/recharge',           array('DriverController', 'rechargeWallet'));
+
+// Razorpay Payment Integration (Live & Test)
+$router->post('/payment/create-order',            array('PaymentController', 'createOrder'));
+$router->post('/payment/verify',                  array('PaymentController', 'verifyPayment'));
 
 // Driver Notifications & Documents
 $router->get('/driver/notifications',              array('DriverController', 'getNotifications'));

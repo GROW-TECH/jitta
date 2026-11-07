@@ -65,6 +65,13 @@ export const adminApi = {
       'admin'
     ),
 
+  remindDriverRecharge: (id: string) =>
+    request<any>(
+      `/admin/drivers/${id}/remind-recharge`,
+      { method: 'POST' },
+      'admin'
+    ),
+
   getVehicles: () =>
     request<{ categories: any[] }>('/admin/vehicles', { method: 'GET' }, 'admin'),
 

@@ -161,7 +161,7 @@ export const LandingFooter: React.FC<LandingFooterProps> = ({ onOpenDownloadModa
             <div className="pt-2 text-xs text-slate-400 space-y-1">
               <p className="flex items-center gap-1.5">
                 <Phone className="w-3.5 h-3.5 text-[#E85D04]" />
-                <a href="tel:+918220444321" className="hover:text-white font-bold">+91 82204 44321</a>
+                <a href="tel:+917598131421" className="hover:text-white font-bold">+91 75981 31421</a>
               </p>
               <p className="flex items-center gap-1.5">
                 <Mail className="w-3.5 h-3.5 text-[#E85D04]" />

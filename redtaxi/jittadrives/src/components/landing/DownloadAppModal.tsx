@@ -107,7 +107,7 @@ export const DownloadAppModal: React.FC<DownloadAppModalProps> = ({ isOpen, onCl
 
         {/* Modal Bottom Helpline Footer */}
         <div className="bg-slate-50 border-t border-slate-100 py-3.5 px-6 text-center text-xs text-slate-500 font-medium">
-          Need assistance? Call our 24/7 Helpline: <a href="tel:+917010659842" className="text-[#E85D04] font-bold hover:underline">+91 70106 59842</a>
+          Need assistance? Call our 24/7 Helpline: <a href="tel:+917598131421" className="text-[#E85D04] font-bold hover:underline">+91 75981 31421</a>
         </div>
       </div>
     </div>

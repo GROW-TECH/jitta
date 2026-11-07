@@ -241,6 +241,11 @@ export const AdminDashboardView: React.FC = () => {
   const [allCouponsMasterActive, setAllCouponsMasterActive] = useState<boolean>(true);
   const [walletData, setWalletData] = useState<any>(null);
   const [walletLoading, setWalletLoading] = useState(false);
+  const [walletSearch, setWalletSearch] = useState('');
+  const [walletFilter, setWalletFilter] = useState<'ALL' | 'LOW' | 'NEGATIVE' | 'HEALTHY'>('ALL');
+  const [newCommissionInput, setNewCommissionInput] = useState<string>('');
+  const [savingCommission, setSavingCommission] = useState(false);
+  const [remindingDriverId, setRemindingDriverId] = useState<string | null>(null);
   const [paymentsList, setPaymentsList] = useState<any[]>([]);
   const [paymentsLoading, setPaymentsLoading] = useState(false);
   const [paymentFilter, setPaymentFilter] = useState('ALL');
@@ -3006,59 +3011,220 @@ export const AdminDashboardView: React.FC = () => {
         {/* Wallets Audit */}
         {adminTab === 'WALLETS' && (
           <div className={`border rounded-3xl p-5 space-y-4 shadow-xl ${isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-800 text-white'}`}>
-            <h2 className="text-lg font-bold">Customer & Driver Wallets Audit</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold">Driver Wallets & Platform Commission Audit</h2>
+                <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Manage driver prepaid balances, commission rate, and send low-balance recharge alerts.</p>
+              </div>
+
+              {/* Commission Rate Control Box */}
+              <div className={`flex items-center gap-2 p-2 rounded-2xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'}`}>
+                <span className="text-[11px] font-bold text-slate-400">Active Commission:</span>
+                <span className="px-2.5 py-1 bg-[#E85D04]/10 text-[#E85D04] font-black text-xs rounded-xl border border-[#E85D04]/20">
+                  {walletData?.active_commission_percent ?? 10}%
+                </span>
+                <div className="flex items-center gap-1.5 ml-2">
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    placeholder="New %"
+                    value={newCommissionInput}
+                    onChange={(e) => setNewCommissionInput(e.target.value)}
+                    className={`w-18 p-1.5 text-xs rounded-xl border font-bold text-center outline-none ${isLight ? 'bg-white border-slate-300' : 'bg-slate-900 border-slate-700 text-white'}`}
+                  />
+                  <button
+                    disabled={savingCommission || !newCommissionInput}
+                    onClick={async () => {
+                      const num = parseFloat(newCommissionInput);
+                      if (isNaN(num) || num <= 0 || num > 100) {
+                        alert('Please enter a valid commission percent (1 - 100)');
+                        return;
+                      }
+                      setSavingCommission(true);
+                      try {
+                        const res = await adminApi.saveSettings({
+                          platform_commission: String(num),
+                          sos_number: settingsData?.sos_number ?? '112',
+                        });
+                        if (res.success) {
+                          showToast(`Platform commission successfully updated to ${num}%!`);
+                          setNewCommissionInput('');
+                          const r = await adminApi.getWalletAudit();
+                          if (r.success) setWalletData(r.data);
+                        } else {
+                          showToast(res.message || 'Failed to update commission');
+                        }
+                      } catch {
+                        showToast('Error saving commission percentage');
+                      } finally {
+                        setSavingCommission(false);
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-[#E85D04] hover:bg-[#C2410C] text-white font-extrabold text-xs rounded-xl transition shadow disabled:opacity-50"
+                  >
+                    {savingCommission ? 'Saving…' : 'Update %'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {walletLoading ? (
               <p className={`text-xs ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>Loading wallet balances…</p>
             ) : walletData ? (
               <>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                   <div className={`border p-4 rounded-2xl ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'}`}>
-                    <span className="text-slate-400 font-bold block">TOTAL CUSTOMER BALANCE</span>
-                    <span className="text-xl font-extrabold text-emerald-500">₹{Number(walletData.total_customer_balance || 0).toLocaleString('en-IN')}</span>
-                    <span className="block text-[10px] mt-1 text-slate-400">{walletData.customer_wallet_count} wallet(s) • {walletData.customer_tx_count} transactions</span>
+                    <span className="text-slate-400 font-bold block">DRIVER PREPAID WALLET BALANCE</span>
+                    <span className="text-xl font-extrabold text-blue-500">₹{Number(walletData.total_driver_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    <span className="block text-[10px] mt-1 text-slate-400">{walletData.driver_wallet_count} active driver prepaid account(s)</span>
                   </div>
                   <div className={`border p-4 rounded-2xl ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'}`}>
-                    <span className="text-slate-400 font-bold block">DRIVER WITHDRAWABLE BALANCE</span>
-                    <span className="text-xl font-extrabold text-blue-500">₹{Number(walletData.total_driver_balance || 0).toLocaleString('en-IN')}</span>
-                    <span className="block text-[10px] mt-1 text-slate-400">{walletData.driver_wallet_count} wallet(s) • {walletData.driver_tx_count} transactions</span>
-                  </div>
-                  <div className={`border p-4 rounded-2xl ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'}`}>
-                    <span className="text-slate-400 font-bold block">PLATFORM COMMISSION PAID</span>
-                    <span className="text-xl font-extrabold text-purple-500">₹{Number(walletData.platform_commission || 0).toLocaleString('en-IN')}</span>
-                    <span className="block text-[10px] mt-1 text-slate-400">total retained from driver earnings</span>
+                    <span className="text-slate-400 font-bold block">PLATFORM COMMISSION EARNED</span>
+                    <span className="text-xl font-extrabold text-purple-500">₹{Number(walletData.platform_commission || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    <span className="block text-[10px] mt-1 text-slate-400">Total {walletData.active_commission_percent ?? 10}% platform fee retained from rides</span>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <div>
-                    <h3 className="text-xs font-extrabold uppercase mb-2 text-slate-400">Top Customer Wallets</h3>
-                    <div className="border rounded-2xl divide-y overflow-hidden">
-                      {(walletData.customer_wallets || [])
-                        .slice((custWalletPage - 1) * PAGE_SIZE, custWalletPage * PAGE_SIZE)
-                        .map((w: any) => (
-                        <div key={w.id} className={`flex justify-between items-center text-xs p-3 ${isLight ? 'bg-slate-50 divide-slate-200' : 'bg-slate-950 divide-slate-800'}`}>
-                          <span className="font-bold">{w.customer_name || 'Customer'}</span>
-                          <span className="font-mono text-emerald-500">₹{Number(w.balance || 0).toLocaleString('en-IN')}</span>
-                        </div>
-                      ))}
-                      {(walletData.customer_wallets || []).length === 0 && <p className={`text-xs p-3 ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>No customer wallets.</p>}
-                    </div>
-                    <Pagination total={(walletData.customer_wallets || []).length} page={custWalletPage} label="customer wallets" onChange={setCustWalletPage} isLight={isLight} />
+                {/* Filter and Search Bar for Driver Wallets */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => { setWalletFilter('ALL'); setDrvWalletPage(1); }}
+                      className={`px-3 py-1.5 rounded-xl font-bold text-xs transition border ${walletFilter === 'ALL' ? 'bg-[#E85D04] text-white border-[#E85D04]' : (isLight ? 'bg-slate-50 border-slate-200 text-slate-700' : 'bg-slate-950 border-slate-800 text-slate-300')}`}
+                    >
+                      All Wallets ({(walletData.driver_wallets || []).length})
+                    </button>
+                    <button
+                      onClick={() => { setWalletFilter('LOW'); setDrvWalletPage(1); }}
+                      className={`px-3 py-1.5 rounded-xl font-bold text-xs transition border ${walletFilter === 'LOW' ? 'bg-amber-500 text-white border-amber-500' : (isLight ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-amber-950/40 border-amber-800 text-amber-400')}`}
+                    >
+                      Low Balance (&le; ₹50) ({(walletData.driver_wallets || []).filter((w: any) => Number(w.balance || 0) <= 50 && Number(w.balance || 0) >= 0).length})
+                    </button>
+                    <button
+                      onClick={() => { setWalletFilter('NEGATIVE'); setDrvWalletPage(1); }}
+                      className={`px-3 py-1.5 rounded-xl font-bold text-xs transition border ${walletFilter === 'NEGATIVE' ? 'bg-rose-600 text-white border-rose-600' : (isLight ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-rose-950/40 border-rose-800 text-rose-400')}`}
+                    >
+                      Negative Balance (&lt; ₹0) ({(walletData.driver_wallets || []).filter((w: any) => Number(w.balance || 0) < 0).length})
+                    </button>
+                    <button
+                      onClick={() => { setWalletFilter('HEALTHY'); setDrvWalletPage(1); }}
+                      className={`px-3 py-1.5 rounded-xl font-bold text-xs transition border ${walletFilter === 'HEALTHY' ? 'bg-emerald-600 text-white border-emerald-600' : (isLight ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-emerald-950/40 border-emerald-800 text-emerald-400')}`}
+                    >
+                      Healthy (&gt; ₹50) ({(walletData.driver_wallets || []).filter((w: any) => Number(w.balance || 0) > 50).length})
+                    </button>
                   </div>
+
+                  <div className="relative min-w-[220px]">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search driver name or phone..."
+                      value={walletSearch}
+                      onChange={(e) => { setWalletSearch(e.target.value); setDrvWalletPage(1); }}
+                      className={`w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border outline-none ${isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'}`}
+                    />
+                  </div>
+                </div>
+
+                {/* Driver Wallets Table */}
+                <div className="grid grid-cols-1 gap-4">
                   <div>
-                    <h3 className="text-xs font-extrabold uppercase mb-2 text-slate-400">Top Driver Wallets</h3>
-                    <div className="border rounded-2xl divide-y overflow-hidden">
-                      {(walletData.driver_wallets || [])
-                        .slice((drvWalletPage - 1) * PAGE_SIZE, drvWalletPage * PAGE_SIZE)
-                        .map((w: any) => (
-                        <div key={w.id} className={`flex justify-between items-center text-xs p-3 ${isLight ? 'bg-slate-50 divide-slate-200' : 'bg-slate-950 divide-slate-800'}`}>
-                          <span className="font-bold">{w.driver_name || 'Driver'}</span>
-                          <span className="font-mono text-blue-500">₹{Number(w.balance || 0).toLocaleString('en-IN')}</span>
-                        </div>
-                      ))}
-                      {(walletData.driver_wallets || []).length === 0 && <p className={`text-xs p-3 ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>No driver wallets.</p>}
-                    </div>
-                    <Pagination total={(walletData.driver_wallets || []).length} page={drvWalletPage} label="driver wallets" onChange={setDrvWalletPage} isLight={isLight} />
+                    {(() => {
+                      const searchLower = walletSearch.trim().toLowerCase();
+                      const filteredList = (walletData.driver_wallets || []).filter((w: any) => {
+                        const bal = Number(w.balance || 0);
+                        if (walletFilter === 'LOW' && (bal > 50 || bal < 0)) return false;
+                        if (walletFilter === 'NEGATIVE' && bal >= 0) return false;
+                        if (walletFilter === 'HEALTHY' && bal <= 50) return false;
+                        if (searchLower) {
+                          const name = String(w.driver_name || '').toLowerCase();
+                          const phone = String(w.driver_phone || '').toLowerCase();
+                          if (!name.includes(searchLower) && !phone.includes(searchLower)) return false;
+                        }
+                        return true;
+                      });
+
+                      const pagedWallets = filteredList.slice((drvWalletPage - 1) * PAGE_SIZE, drvWalletPage * PAGE_SIZE);
+
+                      return (
+                        <>
+                          <div className="border rounded-2xl divide-y overflow-hidden mt-2">
+                            {pagedWallets.map((w: any) => {
+                              const bal = Number(w.balance || 0);
+                              const isNeg = bal < 0;
+                              const isLow = bal <= 50;
+                              const isReminding = remindingDriverId === String(w.driver_id);
+
+                              return (
+                                <div key={w.id} className={`flex flex-wrap justify-between items-center text-xs p-3.5 gap-2 ${isLight ? 'bg-slate-50 divide-slate-200' : 'bg-slate-950 divide-slate-800'}`}>
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-extrabold text-sm">{w.driver_name || 'Driver'}</span>
+                                      {w.driver_phone && <span className="text-slate-400 font-mono text-[11px]">({w.driver_phone})</span>}
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                        isNeg
+                                          ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
+                                          : isLow
+                                          ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
+                                          : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                                      }`}>
+                                        {isNeg ? 'NEGATIVE BALANCE' : isLow ? 'LOW BALANCE' : 'HEALTHY'}
+                                      </span>
+                                      <span className="text-[10px] text-slate-400">
+                                        Commission: {w.commission_percent ?? (walletData.active_commission_percent ?? 10)}%
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-3">
+                                    <span className={`font-mono font-extrabold text-base ${isNeg ? 'text-rose-500' : isLow ? 'text-amber-500' : 'text-emerald-500'}`}>
+                                      ₹{bal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                    </span>
+
+                                    {/* Real Pop-up Push Notification Reminder Button */}
+                                    {isLow && (
+                                      <button
+                                        disabled={isReminding}
+                                        onClick={async () => {
+                                          setRemindingDriverId(String(w.driver_id));
+                                          try {
+                                            const res = await adminApi.remindDriverRecharge(String(w.driver_id));
+                                            if (res && res.success) {
+                                              showToast(`🔔 Pop-up alert notification dispatched to ${w.driver_name || 'Driver'}!`);
+                                            } else {
+                                              showToast(res?.message || 'Failed to send alert');
+                                            }
+                                          } catch {
+                                            showToast('Failed to send notification');
+                                          } finally {
+                                            setRemindingDriverId(null);
+                                          }
+                                        }}
+                                        title="Send real popup notification to driver phone"
+                                        className="px-3 py-1.5 rounded-xl font-bold text-xs bg-rose-500 hover:bg-rose-600 text-white shadow-md shadow-rose-500/20 transition flex items-center gap-1.5 disabled:opacity-50"
+                                      >
+                                        <Bell className="w-3.5 h-3.5" />
+                                        <span>{isReminding ? 'Sending…' : 'Send Alert 🔔'}</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+
+                            {filteredList.length === 0 && (
+                              <p className={`text-xs p-4 text-center ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>
+                                No driver wallets matching filter.
+                              </p>
+                            )}
+                          </div>
+                          <Pagination total={filteredList.length} page={drvWalletPage} label="driver wallets" onChange={setDrvWalletPage} isLight={isLight} />
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               </>

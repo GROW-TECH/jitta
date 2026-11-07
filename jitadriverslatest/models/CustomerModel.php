@@ -79,10 +79,10 @@ class CustomerModel extends BaseModel
                     VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 0, NOW())";
             $this->query($sql, array($id, $name, $phone, $email, $passwordHash, $avatarUrl, $cityId));
 
-            // Initialize customer wallet with ₹500 starter balance for instant testing
+            // Initialize customer wallet with ₹0.00 starter balance
             $walletId = Security::generateUUID();
             $walletSql = "INSERT INTO `customer_wallets` (`id`, `customer_id`, `balance`, `is_active`)
-                          VALUES (?, ?, 500.00, 1)";
+                          VALUES (?, ?, 0.00, 1)";
             $this->query($walletSql, array($walletId, $id));
 
             $this->commit();

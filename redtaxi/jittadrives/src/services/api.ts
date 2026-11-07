@@ -358,6 +358,28 @@ export const driverApi = {
   instantApprove: () =>
     request<any>('/driver/documents/instant-approve', { method: 'POST' }, 'driver'),
 
+  // Razorpay Gateway
+  createPaymentOrder: (amount: number, purpose: string, reference_id?: string) =>
+    request<any>(
+      '/payment/create-order',
+      { method: 'POST', body: JSON.stringify({ amount, purpose, reference_id }) },
+      'driver'
+    ),
+
+  verifyPayment: (data: {
+    razorpay_order_id: string;
+    razorpay_payment_id: string;
+    razorpay_signature: string;
+    purpose: string;
+    amount: number;
+    reference_id?: string;
+  }) =>
+    request<any>(
+      '/payment/verify',
+      { method: 'POST', body: JSON.stringify(data) },
+      'driver'
+    ),
+
   dispatchTestRide: (lat: number, lng: number, vehicle_type?: string) =>
     request<any>('/driver/test-ride/dispatch', { method: 'POST', body: JSON.stringify({ lat, lng, vehicle_type }) }, 'driver'),
 

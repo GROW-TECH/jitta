@@ -45,6 +45,9 @@ class AuthMiddleware
         if (!empty($_SERVER['HTTP_X_DRIVER_TOKEN'])) {
             return trim($_SERVER['HTTP_X_DRIVER_TOKEN']);
         }
+        if (!empty($_SERVER['HTTP_X_ADMIN_TOKEN'])) {
+            return trim($_SERVER['HTTP_X_ADMIN_TOKEN']);
+        }
 
         return null;
     }

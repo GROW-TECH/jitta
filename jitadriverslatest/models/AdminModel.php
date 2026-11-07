@@ -1679,4 +1679,36 @@ class AdminModel extends BaseModel
             updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     }
+
+    /**
+     * Sends a recharge reminder notification to a driver with low or negative balance.
+     */
+    public function sendDriverRechargeReminder($driverId)
+    {
+        $driver = $this->fetchOne("SELECT id, name, phone, approval_status FROM drivers WHERE id = ?", array($driverId));
+        if (!$driver) {
+            return false;
+        }
+
+        $wallet = $this->fetchOne("SELECT balance FROM driver_wallets WHERE driver_id = ?", array($driverId));
+        $balance = $wallet ? (float)$wallet['balance'] : 0.0;
+
+        $notifId = Security::generateUUID();
+        $title = "Low Wallet Balance - Recharge Required";
+        $message = "Your prepaid wallet balance is Rs. " . number_format($balance, 2) . ". Please recharge your wallet to receive and accept new ride requests.";
+        $notifType = "PAYMENT";
+
+        $this->execute(
+            "INSERT INTO notifications (id, user_id, user_type, title, message, type, is_read, audience, created_at)
+             VALUES (?, ?, 'DRIVER', ?, ?, ?, 0, 'INDIVIDUAL', NOW())",
+            array($notifId, $driverId, $title, $message, $notifType)
+        );
+
+        return array(
+            'driver_id' => $driverId,
+            'driver_name' => $driver['name'],
+            'balance' => $balance,
+            'notification_id' => $notifId
+        );
+    }
 }

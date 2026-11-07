@@ -898,7 +898,7 @@ export const DriverAppView: React.FC = () => {
 
   // Driver Prepaid Wallet Recharge State
   const [showRechargeModal, setShowRechargeModal] = useState<boolean>(false);
-  const [rechargeAmount, setRechargeAmount] = useState<number>(100);
+  const [rechargeAmount, setRechargeAmount] = useState<number>(50);
   const [customRechargeInput, setCustomRechargeInput] = useState<string>('');
   const [rechargeMethod, setRechargeMethod] = useState<'UPI' | 'CARD' | 'NETBANKING'>('UPI');
   const [isProcessingRecharge, setIsProcessingRecharge] = useState<boolean>(false);
@@ -910,6 +910,8 @@ export const DriverAppView: React.FC = () => {
     newBalance?: number;
   } | null>(null);
   const [showLowBalanceModal, setShowLowBalanceModal] = useState<boolean>(false);
+  const [incomingLowBalanceAlert, setIncomingLowBalanceAlert] = useState<{ id: string; title: string; message: string; balance?: number } | null>(null);
+  const seenNotifIdsRef = useRef<Set<string>>(new Set());
   const [simulateFail, setSimulateFail] = useState<boolean>(false);
 
   // Uber-style left menu drawer (home screen only)
@@ -917,29 +919,130 @@ export const DriverAppView: React.FC = () => {
 
   const handleExecuteRecharge = async () => {
     const finalAmount = customRechargeInput ? parseFloat(customRechargeInput) : rechargeAmount;
-    if (isNaN(finalAmount) || finalAmount <= 0) return;
+    if (isNaN(finalAmount) || finalAmount < 50) {
+      alert('Minimum recharge amount is ₹50');
+      return;
+    }
 
     setIsProcessingRecharge(true);
     setRechargeFeedback(null);
 
-    const statusToSubmit = simulateFail ? 'FAILED' : 'SUCCESS';
-    const res = await rechargeDriverWallet(finalAmount, rechargeMethod, statusToSubmit);
-
-    setIsProcessingRecharge(false);
-    if (res && res.success && res.data) {
-      setRechargeFeedback({
-        status: 'SUCCESS',
-        message: res.message,
-        referenceId: res.data.referenceId,
-        amount: res.data.amount,
-        newBalance: res.data.newBalance,
-      });
-      setCustomRechargeInput('');
-    } else {
+    // If simulation mode is toggled, bypass real gateway
+    if (simulateFail) {
+      setIsProcessingRecharge(false);
       setRechargeFeedback({
         status: 'FAILED',
-        message: res?.message || 'Payment gateway failed or transaction was declined.',
-        referenceId: res?.data?.referenceId || 'ERR_' + Date.now().toString().slice(-8),
+        message: 'Simulated decline: Test gateway failure triggered.',
+        referenceId: 'SIM_ERR_' + Date.now().toString().slice(-6),
+        amount: finalAmount,
+      });
+      return;
+    }
+
+    try {
+      // 1. Create Order with Backend Razorpay Service
+      const orderRes = await driverApi.createPaymentOrder(finalAmount, 'DRIVER_RECHARGE');
+      if (!orderRes || !orderRes.success || !orderRes.data) {
+        throw new Error(orderRes?.message || 'Could not initiate Razorpay order');
+      }
+
+      const { order_id, key_id, amount } = orderRes.data;
+
+      // 2. Open Razorpay Standard Checkout Popup directly inside the app
+      const RazorpayConstructor = (window as any).Razorpay;
+      if (!RazorpayConstructor) {
+        throw new Error('Razorpay SDK not loaded. Please check your internet connection.');
+      }
+
+      const driverPhoneClean = (driverProfile.phone || '').replace(/[^0-9]/g, '').slice(-10);
+      const driverEmailFallback = driverProfile.email || `${driverPhoneClean || 'driver'}@jittadrives.com`;
+
+      const options = {
+        key: key_id,
+        amount: Math.round(amount * 100),
+        currency: 'INR',
+        name: 'Jitta Drives',
+        description: `Wallet Recharge - ₹${finalAmount}`,
+        image: 'https://jittadrives.com/logo.png',
+        order_id: order_id,
+        prefill: {
+          name: driverProfile.name || 'Jitta Partner',
+          contact: driverPhoneClean || driverProfile.phone || '',
+          email: driverEmailFallback,
+        },
+        readonly: {
+          contact: true,
+          email: true,
+          name: true,
+        },
+        theme: {
+          color: '#E85D04',
+        },
+        modal: {
+          ondismiss: () => {
+            setIsProcessingRecharge(false);
+          },
+        },
+        handler: async (response: any) => {
+          try {
+            // 3. Verify Payment Signature with Backend
+            const verifyRes = await driverApi.verifyPayment({
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              purpose: 'DRIVER_RECHARGE',
+              amount: finalAmount,
+            });
+
+            setIsProcessingRecharge(false);
+            if (verifyRes && verifyRes.success) {
+              setRechargeFeedback({
+                status: 'SUCCESS',
+                message: `Payment Verified! ₹${finalAmount} credited to wallet.`,
+                referenceId: response.razorpay_payment_id,
+                amount: finalAmount,
+                newBalance: verifyRes.data?.wallet_result?.data?.new_balance,
+              });
+              setCustomRechargeInput('');
+              // Refresh wallet state
+              refreshDriverWallet?.();
+            } else {
+              setRechargeFeedback({
+                status: 'FAILED',
+                message: verifyRes?.message || 'Signature verification failed',
+                referenceId: response.razorpay_payment_id,
+                amount: finalAmount,
+              });
+            }
+          } catch (verErr: any) {
+            setIsProcessingRecharge(false);
+            setRechargeFeedback({
+              status: 'FAILED',
+              message: verErr.message || 'Payment verification encountered an error',
+              referenceId: response.razorpay_payment_id,
+              amount: finalAmount,
+            });
+          }
+        },
+      };
+
+      const rzp = new RazorpayConstructor(options);
+      rzp.on('payment.failed', (failRes: any) => {
+        setIsProcessingRecharge(false);
+        setRechargeFeedback({
+          status: 'FAILED',
+          message: failRes?.error?.description || 'Payment was declined or cancelled',
+          referenceId: failRes?.error?.metadata?.payment_id || 'FAILED_' + Date.now(),
+          amount: finalAmount,
+        });
+      });
+      rzp.open();
+    } catch (err: any) {
+      setIsProcessingRecharge(false);
+      setRechargeFeedback({
+        status: 'FAILED',
+        message: err.message || 'Payment initiation failed',
+        referenceId: 'ERR_' + Date.now().toString().slice(-8),
         amount: finalAmount,
       });
     }
@@ -947,7 +1050,7 @@ export const DriverAppView: React.FC = () => {
 
   const handleToggleOnlineWithGuard = async () => {
     const currentBalance = Number(driverWallet?.balance ?? driverProfile.walletBalance ?? 0);
-    if (!driverProfile.isOnline && currentBalance < 50) {
+    if (!driverProfile.isOnline && currentBalance < 0) {
       setShowLowBalanceModal(true);
       return;
     }
@@ -962,7 +1065,7 @@ export const DriverAppView: React.FC = () => {
   const handleAcceptRide = async (rideId?: string) => {
     if (isAcceptingRide) return;
     const currentBalance = Number(driverWallet?.balance ?? driverProfile.walletBalance ?? 0);
-    if (currentBalance < 50) {
+    if (currentBalance < 0) {
       setShowLowBalanceModal(true);
       return;
     }
@@ -1057,6 +1160,78 @@ export const DriverAppView: React.FC = () => {
 
   // Notice banner when a customer cancels the ride request
   const [rideCancelledNotice, setRideCancelledNotice] = useState<string>('');
+
+  // Real-time Low Wallet Balance & Admin Recharge Alert Polling & Popup Trigger
+  useEffect(() => {
+    let mounted = true;
+    const checkLowBalanceAlerts = async () => {
+      try {
+        const res = await driverApi.getNotifications();
+        if (res && res.success && Array.isArray(res.data) && mounted) {
+          const unreadList = res.data.filter((n: any) => !n.isRead && !n.is_read);
+          const urgentAlert = unreadList.find((n: any) => {
+            const title = String(n.title || '').toLowerCase();
+            const msg = String(n.message || '').toLowerCase();
+            return (
+              title.includes('low') ||
+              title.includes('recharge') ||
+              title.includes('wallet') ||
+              msg.includes('recharge') ||
+              msg.includes('low balance')
+            );
+          });
+
+          if (urgentAlert && !seenNotifIdsRef.current.has(urgentAlert.id)) {
+            seenNotifIdsRef.current.add(urgentAlert.id);
+
+            const notifTitle = urgentAlert.title || 'Low Wallet Balance Alert';
+            const notifBody = urgentAlert.message || 'Please recharge your wallet to continue receiving rides.';
+
+            // 1. Android Native Drop-Down Status Bar Notification (via Android Java Bridge)
+            try {
+              const nativeBridge = (window as any).NativeNotificationBridge;
+              if (nativeBridge && typeof nativeBridge.showNotification === 'function') {
+                nativeBridge.showNotification(notifTitle, notifBody);
+              }
+            } catch {}
+
+            // 2. Web / PWA Notification fallback
+            if (typeof window !== 'undefined' && 'Notification' in window) {
+              if (Notification.permission === 'granted') {
+                try {
+                  new Notification(notifTitle, {
+                    body: notifBody,
+                    icon: '/logo.png',
+                  });
+                } catch {}
+              } else if (Notification.permission !== 'denied') {
+                Notification.requestPermission().then((perm) => {
+                  if (perm === 'granted') {
+                    try {
+                      new Notification(notifTitle, {
+                        body: notifBody,
+                        icon: '/logo.png',
+                      });
+                    } catch {}
+                  }
+                });
+              }
+            }
+
+            refreshDriverWallet?.();
+          }
+        }
+      } catch {}
+    };
+
+    // Check immediately and poll every 4 seconds
+    checkLowBalanceAlerts();
+    const interval = setInterval(checkLowBalanceAlerts, 4000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [playRapidoRideAlertChime, refreshDriverWallet]);
 
   // Auto-dismiss Ride Request popup if the ride is no longer available or was cancelled
   useEffect(() => {
@@ -2389,7 +2564,7 @@ return (
                   setShowRechargeModal(true);
                 }}
                 className={`cursor-pointer rounded-2xl px-3.5 py-2.5 shadow-lg flex items-center justify-between gap-2 transition hover:brightness-105 active:scale-[0.99] border ${
-                  Number(driverWallet?.balance ?? driverProfile.walletBalance ?? 0) < 50
+                  Number(driverWallet?.balance ?? driverProfile.walletBalance ?? 0) < 0
                     ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white border-rose-300/30'
                     : 'bg-gradient-to-r from-amber-500 to-orange-500 text-white border-amber-300/30'
                 }`}
@@ -2398,12 +2573,12 @@ return (
                   <AlertCircle className="w-5 h-5 shrink-0 text-white animate-pulse" />
                   <div className="min-w-0">
                     <p className="text-[11px] font-black truncate">
-                      {Number(driverWallet?.balance ?? driverProfile.walletBalance ?? 0) < 50
+                      {Number(driverWallet?.balance ?? driverProfile.walletBalance ?? 0) < 0
                         ? (language === 'ta' ? 'முக்கிய எச்சரிக்கை: குறைந்த இருப்பு (< ₹50)' : 'Critical Balance! Under ₹50 Limit')
                         : (language === 'ta' ? 'குறைந்த இருப்பு எச்சரிக்கை (₹100க்கு கீழ்)' : 'Low Wallet Balance: Under ₹100')}
                     </p>
                     <p className="text-[10px] text-white/90 font-medium truncate">
-                      {Number(driverWallet?.balance ?? driverProfile.walletBalance ?? 0) < 50
+                      {Number(driverWallet?.balance ?? driverProfile.walletBalance ?? 0) < 0
                         ? (language === 'ta' ? 'புதிய சவாரிகளை ஏற்க ரீசார்ஜ் செய்யவும் (குறைந்தது ₹50 தேவை)' : 'Min ₹50 required to accept rides. Tap to recharge.')
                         : (language === 'ta' ? `இருப்பு: ₹${Number(driverWallet?.balance ?? 0).toFixed(2)} • ரீசார்ஜ் செய்ய தட்டவும்` : `Current: ₹${Number(driverWallet?.balance ?? 0).toFixed(2)} • Recharge to avoid interruption`)}
                     </p>
@@ -4243,7 +4418,7 @@ return (
                 </div>
 
                 <button
-                  disabled={balance > 100}
+                  disabled={false}
                   onClick={() => {
                     if (balance > 100) return;
                     setRechargeFeedback(null);
@@ -4315,7 +4490,7 @@ return (
                 </span>
               </div>
               <div className="grid grid-cols-4 gap-2">
-                {[100, 250, 500].map((amt) => (
+                {[50, 100, 200, 500].map((amt) => (
                   <button
                     key={amt}
                     disabled={balance > 100}
@@ -4558,8 +4733,8 @@ return (
                       <label className="text-[11px] font-bold text-[#737373] uppercase block mb-1.5">
                         Select Top-Up Amount
                       </label>
-                      <div className="grid grid-cols-3 gap-2">
-                        {[100, 250, 500].map((amt) => (
+                      <div className="grid grid-cols-4 gap-2">
+                        {[50, 100, 200, 500].map((amt) => (
                           <button
                             key={amt}
                             type="button"
@@ -4579,14 +4754,14 @@ return (
                       </div>
 
                       <div className="mt-2.5">
-                        <label className="text-[10px] text-[#737373] font-bold block mb-1">Or Enter Custom Amount (₹)</label>
+                        <label className="text-[10px] text-[#737373] font-bold block mb-1">Or Enter Custom Amount (Min ₹50)</label>
                         <div className="relative">
                           <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-[#737373] text-sm">₹</span>
                           <input
                             type="number"
-                            min="10"
+                            min="50"
                             max="50000"
-                            placeholder="e.g. 1000"
+                            placeholder="e.g. 50"
                             value={customRechargeInput}
                             onChange={(e) => setCustomRechargeInput(e.target.value)}
                             className="w-full pl-8 pr-3 py-2.5 bg-[#FAFAF8] border border-black/10 rounded-xl font-bold text-sm text-[#171717] outline-none focus:border-[#E85D04]"
@@ -4595,70 +4770,20 @@ return (
                       </div>
                     </div>
 
-                    {/* Payment Gateway Options */}
-                    <div>
-                      <label className="text-[11px] font-bold text-[#737373] uppercase block mb-1.5">
-                        Payment Method
-                      </label>
-                      <div className="space-y-2">
-                        {[
-                          { id: 'UPI', name: 'UPI Gateway', desc: 'Google Pay, PhonePe, Paytm, BHIM', icon: Sparkles },
-                          { id: 'CARD', name: 'Credit / Debit Card', desc: 'Visa, Mastercard, RuPay', icon: CreditCard },
-                          { id: 'NETBANKING', name: 'NetBanking', desc: 'All Major Indian Banks', icon: Banknote },
-                        ].map((pm) => {
-                          const IconComp = pm.icon;
-                          const isSelected = rechargeMethod === pm.id;
-                          return (
-                            <div
-                              key={pm.id}
-                              onClick={() => setRechargeMethod(pm.id as any)}
-                              className={`p-3 rounded-2xl border transition cursor-pointer flex items-center justify-between ${
-                                isSelected
-                                  ? 'bg-[#FFF7F0] border-[#E85D04] ring-1 ring-[#E85D04]/30'
-                                  : 'bg-white border-black/5 hover:border-black/20'
-                              }`}
-                            >
-                              <div className="flex items-center gap-3">
-                                <div
-                                  className={`w-8 h-8 rounded-xl flex items-center justify-center ${
-                                    isSelected ? 'bg-[#E85D04] text-white' : 'bg-black/5 text-[#737373]'
-                                  }`}
-                                >
-                                  <IconComp className="w-4 h-4" />
-                                </div>
-                                <div>
-                                  <span className="text-xs font-bold text-[#171717] block">{pm.name}</span>
-                                  <span className="text-[10px] text-[#737373] block">{pm.desc}</span>
-                                </div>
-                              </div>
-                              <div
-                                className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                                  isSelected ? 'border-[#E85D04] bg-[#E85D04]' : 'border-black/20'
-                                }`}
-                              >
-                                {isSelected && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
-                              </div>
-                            </div>
-                          );
-                        })}
+                    {/* Payment Mode Note */}
+                    <div className="p-3 bg-[#FFF7F0] border border-[#E85D04]/30 rounded-2xl flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-[#E85D04] text-white flex items-center justify-center">
+                          <CreditCard className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold text-[#171717] block">Online Payment Gateway</span>
+                          <span className="text-[10px] text-[#737373] block">UPI, Cards, NetBanking, Wallets supported</span>
+                        </div>
                       </div>
-                    </div>
-
-                    {/* Test simulation toggle for testing failed scenario */}
-                    <div className="p-2.5 bg-[#FAFAF8] rounded-xl border border-black/5 flex items-center justify-between text-xs">
-                      <div>
-                        <span className="font-bold text-[#171717] block text-[11px]">Test Simulation Mode</span>
-                        <span className="text-[10px] text-[#737373]">Toggle to test failed gateway response</span>
+                      <div className="w-5 h-5 rounded-full border-2 border-[#E85D04] flex items-center justify-center">
+                        <div className="w-2.5 h-2.5 bg-[#E85D04] rounded-full" />
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setSimulateFail(!simulateFail)}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition ${
-                          simulateFail ? 'bg-rose-600 text-white' : 'bg-black/5 text-[#737373]'
-                        }`}
-                      >
-                        {simulateFail ? 'Simulate FAILED 🔴' : 'SUCCESS 🟢'}
-                      </button>
                     </div>
 
                     {/* Submit Recharge */}
@@ -4936,10 +5061,10 @@ if (driverScreen === 'EARNINGS') {
                     </p>
                   </div>
                 </div>
-                {walletBal <= 100 ? (
+                {true ? (
                   <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1">
                     <AlertCircle className="w-3 h-3 text-amber-600" />
-                    {walletBal < 50
+                    {walletBal < 0
                       ? (language === 'ta' ? 'முக்கியக் குறைவு (< ₹50)' : 'Critical (< ₹50)')
                       : (language === 'ta' ? 'குறைந்த இருப்பு' : 'Low Balance')}
                   </span>
@@ -4968,7 +5093,7 @@ if (driverScreen === 'EARNINGS') {
 
                 <div className="flex items-center gap-2">
                   <button
-                    disabled={walletBal > 100}
+                    disabled={false}
                     onClick={() => {
                       setDriverScreen('DRIVER_WALLET');
                       setShowRechargeModal(true);

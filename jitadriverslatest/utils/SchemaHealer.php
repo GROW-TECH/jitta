@@ -160,7 +160,7 @@ class SchemaHealer
                 'photo_url'           => 'VARCHAR(500) NULL DEFAULT NULL',
                 'rating'              => 'DECIMAL(3,2) NOT NULL DEFAULT 5.00',
                 'trips_count'         => 'INT NOT NULL DEFAULT 0',
-                'commission_percent'  => 'DECIMAL(5,2) NOT NULL DEFAULT 15.00',
+                'commission_percent'  => 'DECIMAL(5,2) NOT NULL DEFAULT 10.00',
                 'is_online'           => 'TINYINT(1) NOT NULL DEFAULT 0',
                 'is_on_ride'          => 'TINYINT(1) NOT NULL DEFAULT 0',
                 'last_location_lat'   => 'DECIMAL(10,7) NULL DEFAULT NULL',

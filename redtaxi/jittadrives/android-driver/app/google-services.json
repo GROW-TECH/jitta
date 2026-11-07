@@ -1,0 +1,175 @@
+{
+  "project_info": {
+    "project_number": "876556500941",
+    "firebase_url": "https://otpverify-b111e.firebaseio.com",
+    "project_id": "otpverify-b111e",
+    "storage_bucket": "otpverify-b111e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:876556500941:android:14e37243aef5bd2d944e84",
+        "android_client_info": {
+          "package_name": "com.growtechnologies.firebaseotpverify"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "876556500941-a1jrhafi8o8ss686bpg96hv87mcefs85.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.growtechnologies.firebaseotpverify",
+            "certificate_hash": "dd8232b4f2f26d20fd0d8081a188e87e6b43b33d"
+          }
+        },
+        {
+          "client_id": "876556500941-9h19preq87c3konvs53urh39s0kmlhvo.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB06NFyOJiO_iCk_sHX6ifGXNIcSNkgOas"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "876556500941-9h19preq87c3konvs53urh39s0kmlhvo.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:876556500941:android:c5b45ec0df67f6d5944e84",
+        "android_client_info": {
+          "package_name": "com.xiadot.jittadrives.driver"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "876556500941-9h19preq87c3konvs53urh39s0kmlhvo.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB06NFyOJiO_iCk_sHX6ifGXNIcSNkgOas"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "876556500941-9h19preq87c3konvs53urh39s0kmlhvo.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:876556500941:android:1d5fd6614ff02de0944e84",
+        "android_client_info": {
+          "package_name": "com.xiadot.jittadrives.user"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "876556500941-1b01bdr5ecdfoke63hn59onhip06fmm1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.xiadot.jittadrives.user",
+            "certificate_hash": "e01156a3970f79fbab1092d7862d6df78f724de4"
+          }
+        },
+        {
+          "client_id": "876556500941-9h19preq87c3konvs53urh39s0kmlhvo.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB06NFyOJiO_iCk_sHX6ifGXNIcSNkgOas"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "876556500941-9h19preq87c3konvs53urh39s0kmlhvo.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:876556500941:android:b4bf1a0cfe2a577e944e84",
+        "android_client_info": {
+          "package_name": "com.yuroshopy.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "876556500941-2u6s1t7vfch6e4cbgtpv7ahttkdf7p4g.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.yuroshopy.app",
+            "certificate_hash": "2056136873115eaa7d6c3df5bb98ee5508d99247"
+          }
+        },
+        {
+          "client_id": "876556500941-6v7o0738ists5mp8glvesc8k9k2o4a73.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.yuroshopy.app",
+            "certificate_hash": "6b3beed472295f97648e5ecf58ab5559da8d0289"
+          }
+        },
+        {
+          "client_id": "876556500941-7ui1hcshvpen695o3erkc8rknaoh9ebe.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.yuroshopy.app",
+            "certificate_hash": "1e006f71ec36b555943748ccfb49e8c7200ac991"
+          }
+        },
+        {
+          "client_id": "876556500941-qma1p5m1gjbrgosubvm4rc3lfdtit865.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.yuroshopy.app",
+            "certificate_hash": "b8cb839a6245b15965b1d6ef9e966c35bd93f249"
+          }
+        },
+        {
+          "client_id": "876556500941-9h19preq87c3konvs53urh39s0kmlhvo.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB06NFyOJiO_iCk_sHX6ifGXNIcSNkgOas"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "876556500941-9h19preq87c3konvs53urh39s0kmlhvo.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

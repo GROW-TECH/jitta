@@ -189,22 +189,12 @@ class AdminController extends BaseController
         AuthMiddleware::requireAdmin();
         $id = $this->resolveId($id);
 
-        $driver = $this->adminModel->getDriverDetail($id);
-        if (!$driver) {
+        $result = $this->adminModel->sendDriverRechargeReminder($id);
+        if (!$result) {
             Response::notFound('Driver not found');
         }
 
-        $wallet = $this->adminModel->fetchOne("SELECT balance FROM driver_wallets WHERE driver_id = ?", array($id));
-        $balance = $wallet ? (float)$wallet['balance'] : 0.0;
-
-        $notifType = 'PAYMENT';
-        $this->adminModel->execute(
-            "INSERT INTO notifications (id, user_id, user_type, title, message, type, is_read, audience, created_at)
-             VALUES (?, ?, 'DRIVER', 'Low Wallet Balance - Recharge Required', 'Your prepaid wallet balance is ₹" . number_format($balance, 2) . ". Please recharge your wallet to receive and accept new ride requests.', '$notifType', 0, 'INDIVIDUAL', NOW())",
-            array(Security::generateUUID(), $id)
-        );
-
-        Response::success(array('driver_id' => $id, 'balance' => $balance), 'Recharge reminder notification sent to driver successfully');
+        Response::success($result, 'Recharge reminder notification sent to driver successfully');
     }
 
     /**

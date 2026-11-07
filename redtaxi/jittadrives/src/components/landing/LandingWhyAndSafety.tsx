@@ -68,7 +68,7 @@ export const LandingWhyAndSafety: React.FC = () => {
                 24/7 Direct Helpline
               </h3>
               <p className="text-xs sm:text-sm text-slate-600 font-medium leading-relaxed">
-                Reach our real support team anytime via <strong>+91 70106 59842</strong> with instant resolution.
+                Reach our real support team anytime via <strong>+91 75981 31421</strong> with instant resolution.
               </p>
             </div>
 
@@ -148,7 +148,7 @@ export const LandingWhyAndSafety: React.FC = () => {
                   <div className="bg-white p-4 rounded-2xl border border-slate-200/70 shadow-2xs">
                     <span className="text-2xl font-black text-[#E85D04]">24/7</span>
                     <span className="block text-xs font-bold text-slate-800 mt-1">Helpline Support</span>
-                    <span className="block text-[11px] text-slate-500 mt-0.5">+91 70106 59842</span>
+                    <span className="block text-[11px] text-slate-500 mt-0.5">+91 75981 31421</span>
                   </div>
 
                   <div className="bg-white p-4 rounded-2xl border border-slate-200/70 shadow-2xs">
