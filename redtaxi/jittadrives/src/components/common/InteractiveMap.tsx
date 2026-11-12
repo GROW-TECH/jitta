@@ -67,7 +67,7 @@ async function fetchOsrmRoadRoute(waypoints: [number, number][]): Promise<[numbe
 /** Resolve vehicle marker visual style from ride type / vehicle category */
 export function resolveDriverMarkerVariant(categoryOrRideType?: string | null): 'BIKE' | 'LOGO' {
   const norm = String(categoryOrRideType || '').toUpperCase();
-  if (norm.includes('TWO_WHEELER') || norm.includes('BIKE') || norm.includes('SCOOTER')) {
+  if (norm.includes('TWO_WHEELER') || norm.includes('BIKE') || norm.includes('SCOOT') || norm.includes('MOPED')) {
     return 'BIKE';
   }
   return 'LOGO';
@@ -315,7 +315,9 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       setTimeout(() => {
         if (googleMapInstanceRef.current) {
           g.event.trigger(googleMapInstanceRef.current, 'resize');
-          googleMapInstanceRef.current.setCenter(defaultCenter);
+          if (!googleRouteKeyRef.current && !liveRouteFittedKeyRef.current) {
+            googleMapInstanceRef.current.setCenter(defaultCenter);
+          }
         }
       }, 200);
     }

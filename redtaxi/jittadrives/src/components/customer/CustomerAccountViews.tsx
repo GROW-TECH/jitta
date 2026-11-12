@@ -338,7 +338,7 @@ export const CustomerAccountViews: React.FC = () => {
                 }}
                 className="w-full bg-[#E85D04] text-white font-extrabold py-3.5 rounded-2xl shadow-md shadow-[#E85D04]/30 hover:bg-[#C2410C] transition text-xs sm:text-sm"
               >
-                View Tax Invoice
+                View Invoice
               </button>
             )}
           </div>

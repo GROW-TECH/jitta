@@ -459,8 +459,8 @@ export const bookingApi = {
   cancelBooking: (data: { booking_id?: string; reason?: string }) =>
     request<any>('/booking/cancel', { method: 'POST', body: JSON.stringify(data) }, 'customer'),
 
-  getBookingDetail: (id: string) =>
-    request<any>(`/booking/${id}`, { method: 'GET' }, 'customer'),
+  getBookingDetail: (id: string, role: 'customer' | 'driver' = 'customer') =>
+    request<any>(`/booking/${id}`, { method: 'GET' }, role),
 
   rateBooking: (data: { booking_id: string; rating: number; review?: string }) =>
     request<any>('/booking/rate', { method: 'POST', body: JSON.stringify(data) }, 'customer'),

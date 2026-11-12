@@ -54,10 +54,37 @@ import { VoiceMessageBubble } from '../common/VoiceMessageBubble';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { getVehiclePhoto } from '../../utils/vehicleAssets';
 import { fetchVehicleDetails, type VehicleInfo } from '../../services/vehicleInfoService';
-import { driverApi, tokenStorage, resolveAppBase } from '../../services/api';
+import { driverApi, bookingApi, tokenStorage, resolveAppBase } from '../../services/api';
 import { detectLiveDynamicLocation } from '../../services/locationService';
+import { triggerNativeAlert } from '../../utils/nativeNotifications';
 import { RapidoDocumentsView } from './RapidoDocumentsView';
 import { sendRealFirebaseOtp, verifyRealFirebaseOtp } from '../../services/firebaseAuth';
+
+/** Resolve pickup or drop LocationPoint cleanly across locations[], direct fields, or lat/lng columns */
+function resolveRidePoint(ride: any, type: 'PICKUP' | 'DROP', fallback?: any) {
+  const fromLocs = ride?.locations?.find((l: any) => {
+    const t = String(l?.type || '').toUpperCase();
+    return type === 'PICKUP' ? t === 'PICKUP' : t === 'DROP' || t === 'DROPOFF';
+  });
+  if (fromLocs && isFinite(Number(fromLocs.lat)) && isFinite(Number(fromLocs.lng))) {
+    return fromLocs;
+  }
+  const direct = type === 'PICKUP' ? ride?.pickup : ride?.drop;
+  if (direct && isFinite(Number(direct.lat)) && isFinite(Number(direct.lng))) {
+    return direct;
+  }
+  const colLat = type === 'PICKUP' ? ride?.pickup_lat : ride?.dropoff_lat;
+  const colLng = type === 'PICKUP' ? ride?.pickup_lng : ride?.dropoff_lng;
+  if (colLat != null && colLng != null && isFinite(Number(colLat)) && isFinite(Number(colLng))) {
+    return {
+      name: (type === 'PICKUP' ? ride?.pickup_address : ride?.dropoff_address) || fallback?.name || (type === 'PICKUP' ? 'Pickup Location' : 'Drop Location'),
+      address: (type === 'PICKUP' ? ride?.pickup_address : ride?.dropoff_address) || fallback?.address || '',
+      lat: Number(colLat),
+      lng: Number(colLng),
+    };
+  }
+  return fromLocs || direct || fallback;
+}
 
 export const DriverAppView: React.FC = () => {
   const {
@@ -109,8 +136,11 @@ export const DriverAppView: React.FC = () => {
 
   const activeDriverMarkerVariant = resolveDriverMarkerVariant(
     activeBooking?.vehicleCategory ||
-      activeBooking?.rideType ||
+      driverCurrentRide?.vehicle_category ||
       driverCurrentRide?.vehicleCategory ||
+      driverCurrentRide?.vehicle?.vehicle_type ||
+      activeBooking?.rideType ||
+      driverCurrentRide?.ride_type ||
       driverCurrentRide?.rideType ||
       driverProfile?.vehicleType
   );
@@ -230,8 +260,10 @@ export const DriverAppView: React.FC = () => {
   }, [showDriverChat, chatMessages, setDriverUnreadChatCount]);
 
   const [cancellationAlert, setCancellationAlert] = useState<{ title: string; message: string } | null>(null);
+  const activeRideIdRef = useRef<string | null>(null);
+  activeRideIdRef.current = driverCurrentRide?.id || activeBooking?.id || null;
 
-  // Active ride cancellation polling: checks authoritative ride status from server every 4 seconds
+  // Active ride cancellation polling: checks authoritative ride status from server every 3 seconds
   useEffect(() => {
     let isMounted = true;
     const inRideScreens = ['RIDE_ACCEPTED', 'ARRIVING', 'ARRIVED', 'START_RIDE'];
@@ -239,29 +271,49 @@ export const DriverAppView: React.FC = () => {
       return;
     }
 
+    const triggerCancelledUi = () => {
+      const cancelTitle = language === 'ta' ? 'பயணம் ரத்து செய்யப்பட்டது' : 'Ride Cancelled';
+      const cancelMsg = language === 'ta' ? 'பயணி இந்த பயணத்தை ரத்து செய்துவிட்டார்.' : 'Passenger cancelled this ride.';
+      triggerNativeAlert(cancelTitle, cancelMsg);
+      setCancellationAlert({ title: cancelTitle, message: cancelMsg });
+      setDriverCurrentRide?.(null);
+      setActiveBooking?.(null);
+      setDriverScreen('DRIVER_HOME');
+    };
+
     const interval = setInterval(async () => {
       try {
         const res = await driverApi.getCurrentRide();
         if (!isMounted) return;
-        if (res?.success && res.data && res.data.status === 'CANCELLED') {
-          const cancelMsg = language === 'ta' ? 'பயணி இந்த பயணத்தை ரத்து செய்துவிட்டார்.' : 'Passenger cancelled this ride.';
-          setCancellationAlert({
-            title: language === 'ta' ? 'பயணம் ரத்து செய்யப்பட்டது' : 'Ride Cancelled',
-            message: cancelMsg,
-          });
-          setDriverCurrentRide?.(null);
-          setActiveBooking?.(null);
-          setDriverScreen('DRIVER_HOME');
-        } else if (res?.success && res.data && res.data.status === 'COMPLETED') {
-          // If server marks trip completed, advance to COMPLETE_RIDE (Cash Collection), NEVER auto-jump to DRIVER_HOME
-          setLastCompletedRide?.(res.data);
-          setDriverCurrentRide?.(null);
-          setDriverScreen('COMPLETE_RIDE');
+        if (res?.success && res.data) {
+          if (res.data.status === 'CANCELLED') {
+            triggerCancelledUi();
+          } else if (res.data.status === 'COMPLETED') {
+            // If server marks trip completed, advance to COMPLETE_RIDE (Cash Collection), NEVER auto-jump to DRIVER_HOME
+            setLastCompletedRide?.(res.data);
+            setDriverCurrentRide?.(null);
+            setDriverScreen('COMPLETE_RIDE');
+          }
+        } else if (res?.success && !res.data && activeRideIdRef.current) {
+          const trackedId = String(activeRideIdRef.current);
+          if (!trackedId.startsWith('BK-')) {
+            const detail = await bookingApi.getBookingDetail(trackedId, 'driver');
+            if (!isMounted) return;
+            if (detail?.success && detail.data) {
+              if (detail.data.status === 'CANCELLED') {
+                triggerCancelledUi();
+              } else if (detail.data.status === 'COMPLETED') {
+                setLastCompletedRide?.(detail.data);
+                setDriverCurrentRide?.(null);
+                setDriverScreen('COMPLETE_RIDE');
+              }
+            }
+          }
         }
       } catch {
         // network issue, keep retry
       }
-    }, 4000);
+    }, 3000);
 
     return () => {
       isMounted = false;
@@ -526,8 +578,7 @@ export const DriverAppView: React.FC = () => {
   }, [driverScreen]);
 
   const handleTestReachPickup = async () => {
-    const pickupLoc = driverCurrentRide?.locations?.find((l: any) => l.type === 'PICKUP') ||
-      (driverCurrentRide?.pickup ? driverCurrentRide.pickup : activeBooking?.pickup);
+    const pickupLoc = resolveRidePoint(driverCurrentRide, 'PICKUP', activeBooking?.pickup);
     const pLat = pickupLoc?.lat ? Number(pickupLoc.lat) : 11.6643;
     const pLng = pickupLoc?.lng ? Number(pickupLoc.lng) : 78.1460;
     
@@ -563,10 +614,8 @@ export const DriverAppView: React.FC = () => {
     setIsSimulatingDrive(true);
     setSimStatusMsg('🚗 Simulating real-time drive (logging GPS breadcrumbs)...');
 
-    const pickupLoc = driverCurrentRide?.locations?.find((l: any) => l.type === 'PICKUP') ||
-      (driverCurrentRide?.pickup ? driverCurrentRide.pickup : activeBooking?.pickup);
-    const dropLoc = driverCurrentRide?.locations?.find((l: any) => l.type === 'DROP' || l.type === 'DROPOFF') ||
-      (driverCurrentRide?.drop ? driverCurrentRide.drop : activeBooking?.drop);
+    const pickupLoc = resolveRidePoint(driverCurrentRide, 'PICKUP', activeBooking?.pickup);
+    const dropLoc = resolveRidePoint(driverCurrentRide, 'DROP', activeBooking?.drop);
 
     const startLat = pickupLoc?.lat ? Number(pickupLoc.lat) : 11.6643;
     const startLng = pickupLoc?.lng ? Number(pickupLoc.lng) : 78.1460;
@@ -596,8 +645,7 @@ export const DriverAppView: React.FC = () => {
   };
 
   const handleTestDropOff = async () => {
-    const dropLoc = driverCurrentRide?.locations?.find((l: any) => l.type === 'DROP' || l.type === 'DROPOFF') ||
-      (driverCurrentRide?.drop ? driverCurrentRide.drop : activeBooking?.drop);
+    const dropLoc = resolveRidePoint(driverCurrentRide, 'DROP', activeBooking?.drop);
     const dLat = dropLoc?.lat ? Number(dropLoc.lat) : 11.6500;
     const dLng = dropLoc?.lng ? Number(dropLoc.lng) : 78.1600;
 
@@ -818,6 +866,10 @@ export const DriverAppView: React.FC = () => {
 
   useEffect(() => {
     handleRefreshDriverLocation();
+    const handleNativeGpsEnabled = () => {
+      handleRefreshDriverLocation();
+    };
+    window.addEventListener('jitta:device-gps-enabled', handleNativeGpsEnabled);
     let watchId: number | null = null;
     if ('geolocation' in navigator) {
       watchId = navigator.geolocation.watchPosition(
@@ -835,6 +887,7 @@ export const DriverAppView: React.FC = () => {
       );
     }
     return () => {
+      window.removeEventListener('jitta:device-gps-enabled', handleNativeGpsEnabled);
       if (watchId !== null) navigator.geolocation.clearWatch(watchId);
     };
   }, []);
@@ -859,11 +912,25 @@ export const DriverAppView: React.FC = () => {
     } catch {}
   };
 
+  const lastNotifiedRideRequestRef = useRef<string>('');
+
   useEffect(() => {
     if (driverScreen === 'RIDE_REQUEST') {
       playRideAlertChime();
+      const rideReq = selectedAvailableRide || (availableRides && availableRides.length > 0 ? availableRides[0] : null);
+      const reqId = String(rideReq?.id || '');
+      if (reqId && lastNotifiedRideRequestRef.current !== reqId) {
+        lastNotifiedRideRequestRef.current = reqId;
+        const pName = rideReq?.pickup?.name || 'Pickup';
+        const dName = rideReq?.drop?.name || 'Drop';
+        const reqFare = Number(rideReq?.total_fare || 0);
+        triggerNativeAlert(
+          'New Ride Request!',
+          `${pName} → ${dName}${reqFare > 0 ? ` • ₹${Math.round(reqFare)}` : ''}`
+        );
+      }
     }
-  }, [driverScreen]);
+  }, [driverScreen, selectedAvailableRide, availableRides]);
 
 
 
@@ -1204,36 +1271,7 @@ export const DriverAppView: React.FC = () => {
             const notifTitle = urgentAlert.title || 'Low Wallet Balance Alert';
             const notifBody = urgentAlert.message || 'Please recharge your wallet to continue receiving rides.';
 
-            // 1. Android Native Drop-Down Status Bar Notification (via Android Java Bridge)
-            try {
-              const nativeBridge = (window as any).NativeNotificationBridge;
-              if (nativeBridge && typeof nativeBridge.showNotification === 'function') {
-                nativeBridge.showNotification(notifTitle, notifBody);
-              }
-            } catch {}
-
-            // 2. Web / PWA Notification fallback
-            if (typeof window !== 'undefined' && 'Notification' in window) {
-              if (Notification.permission === 'granted') {
-                try {
-                  new Notification(notifTitle, {
-                    body: notifBody,
-                    icon: '/logo.png',
-                  });
-                } catch {}
-              } else if (Notification.permission !== 'denied') {
-                Notification.requestPermission().then((perm) => {
-                  if (perm === 'granted') {
-                    try {
-                      new Notification(notifTitle, {
-                        body: notifBody,
-                        icon: '/logo.png',
-                      });
-                    } catch {}
-                  }
-                });
-              }
-            }
+            triggerNativeAlert(notifTitle, notifBody);
 
             refreshDriverWallet?.();
           }
@@ -1262,10 +1300,33 @@ export const DriverAppView: React.FC = () => {
 
     const isStillAvailable = availableRides.some((r: any) => String(r.id) === String(currentRideId));
     if (!isStillAvailable) {
+      const dismissedId = String(currentRideId);
       setSelectedAvailableRide(null);
       setDriverScreen('DRIVER_HOME');
+      if (!dismissedId.startsWith('BK-')) {
+        bookingApi.getBookingDetail(dismissedId, 'driver').then((detail) => {
+          if (detail?.success && detail.data?.status === 'CANCELLED') {
+            const cancelTitle = language === 'ta' ? 'பயணம் ரத்து செய்யப்பட்டது' : 'Ride Cancelled';
+            const cancelMsg = language === 'ta' ? 'பயணி இந்த பயண கோரிக்கையை ரத்து செய்துவிட்டார்.' : 'Passenger cancelled this ride request.';
+            triggerNativeAlert(cancelTitle, cancelMsg);
+            setCancellationAlert({ title: cancelTitle, message: cancelMsg });
+          }
+        }).catch(() => {});
+      }
     }
   }, [driverScreen, selectedAvailableRide?.id, availableRides, setDriverScreen, setSelectedAvailableRide]);
+
+  // Silently poll approval status while waiting so driver unlocks automatically once approved
+  useEffect(() => {
+    const status = (driverProfile.approvalStatus || 'PENDING').toUpperCase();
+    if (status !== 'PENDING') return;
+    if (driverScreen !== 'DRIVER_APPROVAL' && driverScreen !== 'DRIVER_HOME') return;
+
+    const timer = setInterval(() => {
+      refreshDriverData();
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [driverScreen, driverProfile.approvalStatus, refreshDriverData]);
 
   const handleSendDriverOtp = async () => {
     setLoginError('');
@@ -1327,9 +1388,9 @@ export const DriverAppView: React.FC = () => {
     if (res.success) {
       const approval = res.driver?.approval_status || res.driver?.approvalStatus || driverProfile.approvalStatus;
       if (approval === 'PENDING') {
-        setDriverScreen('DOCUMENTS_UPLOAD');
+        setDriverScreen('DRIVER_APPROVAL');
       } else if (approval === 'REJECTED' || approval === 'SUSPENDED' || approval === 'BLOCKED') {
-        setDriverScreen('DOCUMENTS_UPLOAD');
+        setDriverScreen('DRIVER_APPROVAL');
       } else {
         setDriverScreen('DRIVER_HOME');
       }
@@ -2364,7 +2425,7 @@ export const DriverAppView: React.FC = () => {
                   {isRejected
                     ? 'Please contact support for details'
                     : isPending
-                      ? 'Admin is verifying your vehicle details'
+                      ? 'Your documents are being verified. Approval usually completes within a few minutes.'
                       : 'You are ready to start driving'}
                 </p>
               </div>
@@ -2474,7 +2535,7 @@ return (
             {/* Online Status Toggle Button */}
             <button
               type="button"
-              onClick={canGoOnline ? handleToggleOnlineWithGuard : () => setDriverScreen('DOCUMENTS_UPLOAD')}
+              onClick={canGoOnline ? handleToggleOnlineWithGuard : () => setDriverScreen('DRIVER_APPROVAL')}
               className={`shrink-0 flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-[11px] font-black border transition active:scale-95 shadow-xs ${
                 !canGoOnline
                   ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
@@ -2894,14 +2955,14 @@ return (
                 {!canGoOnline && (
                   <div className="mb-3 p-3.5 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between gap-2 shadow-xs">
                     <div className="min-w-0">
-                      <span className="block text-xs font-bold text-amber-900">Documents Verification Required</span>
-                      <span className="block text-[11px] text-amber-700">Upload DL, Vehicle RC & ID to start earning</span>
+                      <span className="block text-xs font-bold text-amber-900">Verification Under Review</span>
+                      <span className="block text-[11px] text-amber-700">Approval usually completes within a few minutes.</span>
                     </div>
                     <button
-                      onClick={() => setDriverScreen('DOCUMENTS_UPLOAD')}
+                      onClick={() => setDriverScreen('DRIVER_APPROVAL')}
                       className="shrink-0 bg-[#E85D04] hover:bg-[#C2410C] text-white text-xs font-bold px-3 py-2 rounded-xl shadow-xs active:scale-95 transition"
                     >
-                      Upload Documents →
+                      Check Status →
                     </button>
                   </div>
                 )}
@@ -2909,7 +2970,7 @@ return (
                 {/* Primary action (online / offline / pending full button in expanded view) */}
                 <button
                   type="button"
-                  onClick={canGoOnline ? handleToggleOnlineWithGuard : () => setDriverScreen('DOCUMENTS_UPLOAD')}
+                  onClick={canGoOnline ? handleToggleOnlineWithGuard : () => setDriverScreen('DRIVER_APPROVAL')}
                   className={`w-full font-extrabold py-3.5 rounded-[14px] shadow-md min-h-[50px] flex items-center justify-center gap-2 transition active:scale-[0.99] mb-3 text-sm ${
                     !canGoOnline
                       ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/25'
@@ -2920,7 +2981,7 @@ return (
                 >
                   <Power className="w-4 h-4" />
                   {!canGoOnline
-                    ? (language === 'ta' ? 'சரிபார்ப்பு நிலுவையில் உள்ளது - ஆவணங்களை பதிவேற்றவும்' : 'PENDING APPROVAL - UPLOAD DOCUMENTS')
+                    ? (language === 'ta' ? 'சரிபார்ப்பு நிலுவையில் உள்ளது - நிலையை பார்க்கவும்' : 'APPROVAL IN PROGRESS - VIEW STATUS')
                     : driverProfile.isOnline
                       ? (language === 'ta' ? 'பணியை நிறுத்தவும் (ஆஃப்லைன் செல்)' : 'TAKE A BREAK (GO OFFLINE)')
                       : (language === 'ta' ? 'சவாரிகளை ஏற்க ஆன்லைனில் செல்' : 'GO ONLINE TO RECEIVE RIDES')}
@@ -2984,7 +3045,7 @@ return (
                 </div>
                 <button
                   type="button"
-                  onClick={canGoOnline ? handleToggleOnlineWithGuard : () => { setMenuOpen(false); setDriverScreen('DOCUMENTS_UPLOAD'); }}
+                  onClick={canGoOnline ? handleToggleOnlineWithGuard : () => { setMenuOpen(false); setDriverScreen('DRIVER_APPROVAL'); }}
                   className={`px-3 py-1.5 rounded-xl text-xs font-black transition active:scale-95 flex items-center gap-1 shadow-xs ${
                     driverProfile.isOnline
                       ? 'bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100'
@@ -3473,10 +3534,8 @@ return (
       return null;
     }
     const pickedRide = driverCurrentRide || (activeBooking as any) || null;
-    const pickupLoc = pickedRide?.locations?.find((l: any) => l.type === 'PICKUP') ||
-      (pickedRide?.pickup ? pickedRide.pickup : activeBooking?.pickup);
-    const dropLoc = pickedRide?.locations?.find((l: any) => l.type === 'DROP') ||
-      (pickedRide?.drop ? pickedRide.drop : activeBooking?.drop);
+    const pickupLoc = resolveRidePoint(pickedRide, 'PICKUP', activeBooking?.pickup);
+    const dropLoc = resolveRidePoint(pickedRide, 'DROP', activeBooking?.drop);
     const distanceKm = Number(pickedRide?.distance_km ?? pickedRide?.distanceKm ?? activeBooking?.distanceKm ?? 15);
     const rawFare =
       (typeof pickedRide?.fare === 'object' ? (pickedRide?.fare?.total_fare ?? pickedRide?.fare?.totalFare) : pickedRide?.fare) ??
@@ -3665,8 +3724,7 @@ return (
       setTimeout(() => setDriverScreen('DRIVER_HOME'), 0);
       return null;
     }
-    const pickupLoc = driverCurrentRide?.locations?.find((l: any) => l.type === 'PICKUP') ||
-      (driverCurrentRide?.pickup ? driverCurrentRide.pickup : activeBooking?.pickup);
+    const pickupLoc = resolveRidePoint(driverCurrentRide, 'PICKUP', activeBooking?.pickup);
     const pickupName = pickupLoc?.name || activeBooking?.pickup?.name || 'Pickup Location';
     const customerPhone = driverCurrentRide?.customer_phone || activeBooking?.customerPhone || '';
 
@@ -3723,12 +3781,22 @@ return (
                 const pLat = pickupLoc?.lat ? Number(pickupLoc.lat) : undefined;
                 const pLng = pickupLoc?.lng ? Number(pickupLoc.lng) : undefined;
 
+                if (!navigator.geolocation) {
+                  setArrivedError(
+                    language === 'ta'
+                      ? 'GPS இடம் கிடைக்கவில்லை. தயவுசெய்து Location ஆன் செய்து மீண்டும் முயற்சிக்கவும்.'
+                      : 'GPS is not available on this device. Please turn on Location services and try again.'
+                  );
+                  return;
+                }
+
                 // Geofence check: verify physical distance using real GPS
-                if (pLat && pLng && navigator.geolocation) {
-                  navigator.geolocation.getCurrentPosition(
-                    async (pos) => {
-                      const dLat = pos.coords.latitude;
-                      const dLng = pos.coords.longitude;
+                navigator.geolocation.getCurrentPosition(
+                  async (pos) => {
+                    const dLat = pos.coords.latitude;
+                    const dLng = pos.coords.longitude;
+
+                    if (pLat && pLng) {
                       // Haversine distance in meters
                       const R = 6371e3;
                       const dPhi = (pLat - dLat) * Math.PI / 180;
@@ -3738,44 +3806,30 @@ return (
                                 Math.sin(dLambda/2) * Math.sin(dLambda/2);
                       const distMeters = Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
 
-                      if (distMeters > 100) {
-                        setArrivedError(`⚠️ You are ${distMeters > 1000 ? (distMeters/1000).toFixed(1) + 'km' : distMeters + 'm'} away from customer pickup. Move within 100m to mark arrived.`);
+                      if (distMeters > 150) {
+                        setArrivedError(`⚠️ You are ${distMeters > 1000 ? (distMeters/1000).toFixed(1) + 'km' : distMeters + 'm'} away from customer pickup. Move within 150m to mark arrived.`);
                         return;
                       }
+                    }
 
-                      const res = await driverArrivedAtPickup({ lat: dLat, lng: dLng, is_test: false });
-                      if (res && !res.success) {
-                        setArrivedError(res.message || 'Distance check failed. Move closer to customer pickup point.');
-                      }
-                    },
-                    async () => {
-                      // Fallback if GPS hardware permission denied
-                      const res = await driverArrivedAtPickup({ lat: pLat, lng: pLng, is_test: true });
-                      if (res && !res.success) setArrivedError(res.message || 'Distance check failed.');
-                    },
-                    { enableHighAccuracy: true, timeout: 5000 }
-                  );
-                } else {
-                  const res = await driverArrivedAtPickup({ lat: pLat, lng: pLng, is_test: true });
-                  if (res && !res.success) setArrivedError(res.message || 'Distance check failed.');
-                }
+                    const res = await driverArrivedAtPickup({ lat: dLat, lng: dLng, is_test: false });
+                    if (res && !res.success) {
+                      setArrivedError(res.message || 'Distance check failed. Move closer to customer pickup point.');
+                    }
+                  },
+                  () => {
+                    setArrivedError(
+                      language === 'ta'
+                        ? 'உங்கள் GPS இருப்பிடத்தை பெற முடியவில்லை. Location ஆன் செய்து மீண்டும் முயற்சிக்கவும்.'
+                        : 'Could not read your GPS location. Please enable Location services and try again.'
+                    );
+                  },
+                  { enableHighAccuracy: true, timeout: 8000, maximumAge: 5000 }
+                );
               }}
               className="w-full bg-[#E85D04] hover:bg-[#C2410C] text-white font-extrabold py-3.5 rounded-2xl shadow-lg shadow-[#E85D04]/25 min-h-[48px] text-xs sm:text-sm transition active:scale-98"
             >
               {language === 'ta' ? 'ஏறும் இடத்தை அடைந்துவிட்டேன்' : 'ARRIVED AT PICKUP LOCATION'}
-            </button>
-
-            <button
-              type="button"
-              onClick={async () => {
-                setArrivedError('');
-                const pLat = pickupLoc?.lat ? Number(pickupLoc.lat) : 11.6643;
-                const pLng = pickupLoc?.lng ? Number(pickupLoc.lng) : 78.1460;
-                await driverArrivedAtPickup({ lat: pLat, lng: pLng, is_test: true });
-              }}
-              className="w-full text-center text-xs font-bold text-[#737373] hover:text-[#E85D04] py-1 transition underline cursor-pointer"
-            >
-              ⚡ Demo Arrive (Client Showcase / Indoor Test)
             </button>
           </div>
         </div>
@@ -4067,10 +4121,8 @@ return (
       setTimeout(() => setDriverScreen('DRIVER_HOME'), 0);
       return null;
     }
-    const pickupLoc = driverCurrentRide?.locations?.find((l: any) => l.type === 'PICKUP') ||
-      (driverCurrentRide?.pickup ? driverCurrentRide.pickup : activeBooking?.pickup);
-    const dropLoc = driverCurrentRide?.locations?.find((l: any) => l.type === 'DROP') ||
-      (driverCurrentRide?.drop ? driverCurrentRide.drop : activeBooking?.drop);
+    const pickupLoc = resolveRidePoint(driverCurrentRide, 'PICKUP', activeBooking?.pickup);
+    const dropLoc = resolveRidePoint(driverCurrentRide, 'DROP', activeBooking?.drop);
     const dropName = dropLoc?.name || activeBooking?.drop?.name || 'Destination';
     const customerName = sanitizeBrandText(driverCurrentRide?.customer_name || activeBooking?.customerName, 'Passenger');
     const durationMin = driverCurrentRide?.duration_min ?? activeBooking?.durationMin ?? 24;
@@ -4265,9 +4317,16 @@ return (
       activeBooking?.totalFare ??
       0;
 
-    const finalTotalFare = Math.round(Number(rawTotalFare));
-    const finalEarnings = Number(targetRide?.driver_earnings ?? targetRide?.driverEarnings ?? Math.round(finalTotalFare * 0.85));
-    const finalCommission = Number(targetRide?.commission ?? Math.round(finalTotalFare * 0.15));
+    const finalTotalFare = Math.round(Number(rawTotalFare) || 0);
+    const activeCommPct = Number(
+      targetRide?.commission_percent ??
+        driverWallet?.activeCommissionPercent ??
+        (driverProfile as any)?.active_commission_percent ??
+        15
+    ) || 15;
+    const computedComm = Math.round(finalTotalFare * (activeCommPct / 100));
+    const finalCommission = Number(targetRide?.commission ?? computedComm) || 0;
+    const finalEarnings = Number(targetRide?.driver_earnings ?? targetRide?.driverEarnings ?? Math.round(finalTotalFare - finalCommission)) || 0;
     const finalPaymentMethod = String(targetRide?.payment_method || targetRide?.paymentMethod || activeBooking?.paymentMethod || 'CASH').toUpperCase();
     const paymentLabel =
       finalPaymentMethod === 'CASH'
@@ -4342,7 +4401,7 @@ return (
               <span className="font-extrabold text-[#171717]">₹{finalEarnings}</span>
             </div>
             <div className="flex items-center justify-between border-t border-black/5 mt-2 pt-2">
-              <span className="text-[#737373]">{language === 'ta' ? 'ஜிட்டா கமிஷன் (15%)' : 'Jitta Drives Commission (15%)'}</span>
+              <span className="text-[#737373]">{language === 'ta' ? `ஜிட்டா கமிஷன் (${activeCommPct}%)` : `Jitta Drives Commission (${activeCommPct}%)`}</span>
               <span className="font-bold text-[#737373]">₹{finalCommission}</span>
             </div>
           </div>
@@ -4929,13 +4988,22 @@ return (
 
 // 53. Driver Earnings Dashboard
 if (driverScreen === 'EARNINGS') {
-    const todayNet = driverWallet ? Math.round(driverWallet.todayEarnings) : driverProfile.todayEarnings;
-    const completedTrips = driverWallet ? driverWallet.todayTrips : driverProfile.completedTripsToday;
-    const commissionPaid = driverWallet ? Math.round(driverWallet.totalCommissionPaid) : driverProfile.commission;
-    const walletBal = driverWallet ? Number(driverWallet.balance) : 0;
+    const activeCommPct = Number(driverWallet?.activeCommissionPercent ?? (driverProfile as any)?.active_commission_percent ?? 15) || 15;
+    const todayNet = Math.round(Number(driverWallet?.todayEarnings ?? driverProfile.todayEarnings ?? 0) || 0);
+    const completedTrips = Number(driverWallet?.todayTrips ?? driverProfile.completedTripsToday ?? 0) || 0;
+    const commissionPaid = driverWallet
+      ? Math.round(Number(driverWallet.todayCommission ?? 0) || 0)
+      : Math.round(Number(driverProfile.commission ?? 0) || 0);
+    const walletBal = Number(driverWallet?.balance ?? 0) || 0;
 
-    const earningsOf = (r: any) =>
-      r.driver_earnings ? Number(r.driver_earnings) : Math.round((Number(r.total_fare || 0) * 85) / 100);
+    const earningsOf = (r: any) => {
+      if (r?.driver_earnings != null && Number.isFinite(Number(r.driver_earnings))) {
+        return Number(r.driver_earnings);
+      }
+      const fare = Number(r?.total_fare || 0) || 0;
+      const pct = Number(r?.commission_percent ?? activeCommPct) || activeCommPct;
+      return Number((fare * (1 - pct / 100)).toFixed(2));
+    };
     const isCompletedTrip = (r: any) => r.status === 'COMPLETED' || (!r.status && r.payment_status === 'PAID');
     const completedRides = driverRideHistory.filter(isCompletedTrip);
     const now = new Date();
@@ -4948,17 +5016,15 @@ if (driverScreen === 'EARNINGS') {
       const t = new Date(created);
       return !isNaN(t.getTime()) && t >= start;
     };
-    const weekEarnings = isNaN(completedRides
+    const weekEarnings = Number(completedRides
       .filter((r: any) => inRange(r.created_at, startOfWeek))
-      .reduce((s: number, r: any) => s + earningsOf(r), 0)) ? 0 : completedRides
-      .filter((r: any) => inRange(r.created_at, startOfWeek))
-      .reduce((s: number, r: any) => s + earningsOf(r), 0);
-    const monthEarnings = isNaN(completedRides
+      .reduce((s: number, r: any) => s + earningsOf(r), 0).toFixed(2)) || 0;
+    const monthEarnings = Number(completedRides
       .filter((r: any) => inRange(r.created_at, startOfMonth))
-      .reduce((s: number, r: any) => s + earningsOf(r), 0)) ? 0 : completedRides
-      .filter((r: any) => inRange(r.created_at, startOfMonth))
-      .reduce((s: number, r: any) => s + earningsOf(r), 0);
-    const grossEarnings = todayNet + commissionPaid;
+      .reduce((s: number, r: any) => s + earningsOf(r), 0).toFixed(2)) || 0;
+    const grossEarnings = driverWallet?.todayGross != null && Number.isFinite(Number(driverWallet.todayGross))
+      ? Math.round(Number(driverWallet.todayGross))
+      : (todayNet + commissionPaid);
     const transactions = completedRides.length > 0 ? completedRides : driverRideHistory;
 
     return (
@@ -5016,7 +5082,7 @@ if (driverScreen === 'EARNINGS') {
                   <span className="font-bold text-[#171717]">₹{grossEarnings}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-[#737373]">{language === 'ta' ? 'ஜிட்டா கமிஷன்' : 'Jitta Drives Commission'}</span>
+                  <span className="text-[#737373]">{language === 'ta' ? `ஜிட்டா கமிஷன் (${activeCommPct}%)` : `Jitta Drives Commission (${activeCommPct}%)`}</span>
                   <span className="font-bold text-[#737373]">− ₹{commissionPaid}</span>
                 </div>
                 <div className="flex items-center justify-between border-t border-[#E5E5E5] pt-2.5 mt-1">
@@ -5219,7 +5285,10 @@ if (driverScreen === 'EARNINGS') {
             ) : (
               driverRideHistory.map((ride: any) => {
                 const totalFare = Number(ride.total_fare || 0);
-                const driverEarnings = ride.driver_earnings ? Number(ride.driver_earnings) : Math.round(totalFare * 0.85);
+                const histPct = Number(ride.commission_percent ?? driverWallet?.activeCommissionPercent ?? (driverProfile as any)?.active_commission_percent ?? 15) || 15;
+                const driverEarnings = ride.driver_earnings != null && Number.isFinite(Number(ride.driver_earnings))
+                  ? Number(ride.driver_earnings)
+                  : Number((totalFare * (1 - histPct / 100)).toFixed(2));
                 const isCompleted = ride.status === 'COMPLETED';
 
                 return (
@@ -5621,7 +5690,7 @@ if (driverScreen === 'EARNINGS') {
                 </div>
                 {driverProfile.approvalStatus !== 'APPROVED' && (
                   <p className="text-[10px] text-[#737373]">
-                    {language === 'ta' ? 'நிர்வாகி ஒப்புதல் அளித்தவுடன் நீங்கள் ஆன்லைனில் செல்லலாம்.' : 'You can go online once the admin approves your registration.'}
+                    {language === 'ta' ? 'சரிபார்ப்பு சில நிமிடங்களில் முடிந்துவிடும்.' : 'Verification usually completes within a few minutes.'}
                   </p>
                 )}
               </div>
@@ -5637,45 +5706,31 @@ if (driverScreen === 'EARNINGS') {
                       key: 'license',
                       label: language === 'ta' ? 'ஓட்டுநர் உரிமம் (DL)' : 'Driving License',
                       docStatus: driverProfile.documents.license,
-                      docNo: driverProfile.documentNumbers?.license,
-                      defaultNo: `DL-TN38-${driverProfile.phone ? String(driverProfile.phone).slice(-6) : '202401'}`
                     },
                     {
                       key: 'rc',
                       label: language === 'ta' ? 'ஆர்சி புத்தகம் (RC Book)' : 'RC Book',
                       docStatus: driverProfile.documents.rc,
-                      docNo: driverProfile.documentNumbers?.rc,
-                      defaultNo: `RC-${(driverProfile.vehicleNumber || 'TN38BR9123').replace(/\s+/g, '')}`
                     },
                     {
                       key: 'insurance',
                       label: language === 'ta' ? 'காப்பீட்டு சான்றிதழ்' : 'Insurance Certificate',
                       docStatus: driverProfile.documents.insurance,
-                      docNo: driverProfile.documentNumbers?.insurance,
-                      defaultNo: `INS-HDFC-${driverProfile.phone ? String(driverProfile.phone).slice(-5) : '99120'}`
                     },
                     {
                       key: 'permit',
                       label: language === 'ta' ? 'வணிக அனுமதி (Permit)' : 'Commercial Permit',
                       docStatus: driverProfile.documents.permit,
-                      docNo: driverProfile.documentNumbers?.permit,
-                      defaultNo: `PERMIT-TN-${driverProfile.phone ? String(driverProfile.phone).slice(-5) : '48210'}`
                     },
                   ]
-                ).map(({ key, label, docStatus: rawStatus, docNo: rawNo, defaultNo }) => {
+                ).map(({ key, label, docStatus: rawStatus }) => {
                   const isApproved = driverProfile.approvalStatus === 'APPROVED';
                   const isVerified = isApproved ? rawStatus !== 'REJECTED' : rawStatus === 'VERIFIED';
                   const isRejected = rawStatus === 'REJECTED';
-                  const displayDocNo = rawNo || (isApproved ? defaultNo : null);
 
                   return (
                     <div key={key} className="flex justify-between items-center gap-2 border-b border-[#E5E5E5] pb-2 last:border-0 last:pb-0">
-                      <div className="min-w-0">
-                        <span className="text-[#737373] block font-medium">{label}</span>
-                        <span className={`text-[10px] font-mono truncate block ${displayDocNo ? 'text-[#171717] font-semibold' : 'text-[#A3A3A3]'}`}>
-                          {displayDocNo || (language === 'ta' ? '— வழங்கப்படவில்லை —' : '— Not provided —')}
-                        </span>
-                      </div>
+                      <span className="text-[#737373] font-medium min-w-0 truncate">{label}</span>
                       <span className={`font-extrabold shrink-0 text-xs px-2 py-0.5 rounded-full ${
                         isVerified
                           ? 'bg-emerald-50 text-[#22A06B] border border-emerald-200'

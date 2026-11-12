@@ -41,6 +41,7 @@ class DriverController extends BaseController
         }
 
         unset($driver['password_hash']);
+        $driver['active_commission_percent'] = $this->driverModel->getEffectiveCommissionPercent($driverId);
         Response::success($driver, 'Driver profile retrieved');
     }
 
@@ -418,14 +419,17 @@ class DriverController extends BaseController
         $transactions = $this->driverModel->getWalletTransactions($driverId, $limit, $offset);
 
         $data = array(
-            'walletId'            => $wallet['id'],
-            'balance'             => (float)$wallet['balance'],
-            'todayEarnings'       => (float)$wallet['today_earnings'],
-            'todayTrips'          => (int)$wallet['today_trips'],
-            'totalCommissionPaid' => (float)$wallet['total_commission_paid'],
-            'currency'            => 'INR',
-            'isActive'            => (bool)$wallet['is_active'],
-            'transactions'        => $transactions
+            'walletId'                => $wallet['id'],
+            'balance'                 => (float)$wallet['balance'],
+            'todayEarnings'           => (float)$wallet['today_earnings'],
+            'todayGross'              => isset($wallet['today_gross']) ? (float)$wallet['today_gross'] : (float)$wallet['today_earnings'],
+            'todayCommission'         => isset($wallet['today_commission']) ? (float)$wallet['today_commission'] : 0.0,
+            'todayTrips'              => (int)$wallet['today_trips'],
+            'totalCommissionPaid'     => (float)$wallet['total_commission_paid'],
+            'activeCommissionPercent' => isset($wallet['active_commission_percent']) ? (float)$wallet['active_commission_percent'] : 15.0,
+            'currency'                => 'INR',
+            'isActive'                => (bool)$wallet['is_active'],
+            'transactions'            => $transactions
         );
 
         $meta = array(

@@ -562,14 +562,8 @@ class AuthController extends BaseController
             Response::forbidden('Admin account is inactive. Please contact system owner.');
         }
 
-        $isValidPass = !empty($admin['password_hash']) && Security::verifyPassword($password, $admin['password_hash']);
-        if (!$isValidPass && ($password === 'admin123' || $password === 'Admin@123')) {
-            if (Security::verifyPassword('Admin@123', $admin['password_hash']) || Security::verifyPassword('admin123', $admin['password_hash'])) {
-                $isValidPass = true;
-            }
-        }
-
-        if (!$isValidPass) {
+        $hash = isset($admin['password_hash']) ? $admin['password_hash'] : '';
+        if (!$this->adminModel->verifyAdminPassword($password, $hash)) {
             Response::unauthorized('Invalid email or password');
         }
 

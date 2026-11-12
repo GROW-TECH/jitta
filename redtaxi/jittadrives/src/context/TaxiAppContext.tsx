@@ -36,6 +36,7 @@ import { tokenStorage, bookingApi, authApi, customerApi, driverApi, chatApi, loo
 import { adminApi } from '../admin/adminApi';
 import { type LanguageCode, translations } from '../i18n/translations';
 import { detectLiveDynamicLocationWithStatus } from '../services/locationService';
+import { triggerNativeAlert } from '../utils/nativeNotifications';
 
 export const sanitizeBrandText = (text?: string, fallback?: string): string => text || fallback || '';
 
@@ -46,7 +47,7 @@ export function mapBackendBookingToRecord(b: any): BookingRecord {
     lat: Number(b.pickup?.lat || 11.0168),
     lng: Number(b.pickup?.lng || 76.9558),
   };
-  const dropLoc = b.locations?.find((l: any) => l.type === 'DROP') || {
+  const dropLoc = b.locations?.find((l: any) => l.type === 'DROP' || l.type === 'DROPOFF') || {
     name: b.drop?.name || (typeof b.drop === 'string' ? b.drop : 'Drop Location'),
     address: b.drop?.address || '',
     lat: Number(b.drop?.lat || 11.0268),
@@ -541,6 +542,11 @@ export const TaxiAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   useEffect(() => {
     autoDetectGps();
+    const handleNativeGpsEnabled = () => {
+      autoDetectGps();
+    };
+    window.addEventListener('jitta:device-gps-enabled', handleNativeGpsEnabled);
+    return () => window.removeEventListener('jitta:device-gps-enabled', handleNativeGpsEnabled);
   }, [autoDetectGps]);
 
   const retryLocationDetection = useCallback(() => {
@@ -1114,6 +1120,7 @@ export const TaxiAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [simulatedProgress, setSimulatedProgress] = useState<number>(0);
   const completedRideIdsRef = useRef<Set<string>>(new Set());
   const rejectedRideIdsRef = useRef<Set<string>>(new Set());
+  const lastNotifiedBookingStatusRef = useRef<string>('');
 
   // Load driver profile and active ride from backend on app launch if authenticated
   useEffect(() => {
@@ -1325,6 +1332,12 @@ export const TaxiAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     } else if (statusStr === 'ARRIVED') {
       if (['SEARCHING_DRIVER', 'DRIVER_ASSIGNED', 'DRIVER_EN_ROUTE', 'BOOKING_CONFIRM', 'NO_DRIVERS_AVAILABLE'].includes(customerScreen)) {
+        const notifyKey = `${activeBooking.id}:ARRIVED`;
+        if (lastNotifiedBookingStatusRef.current !== notifyKey) {
+          lastNotifiedBookingStatusRef.current = notifyKey;
+          const otpText = activeBooking.startOtp ? ` Share OTP ${activeBooking.startOtp} to start your ride.` : '';
+          triggerNativeAlert('Captain Has Arrived!', `Your Captain reached your pickup location.${otpText}`);
+        }
         setCustomerScreen('DRIVER_ARRIVED');
       }
     } else if (statusStr === 'STARTED' || statusStr === 'IN_PROGRESS') {
@@ -1333,6 +1346,17 @@ export const TaxiAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     } else if (statusStr === 'COMPLETED') {
       if (!['TRIP_COMPLETED', 'RATING', 'INVOICE', 'HOME', 'PAYMENT_COMPLETED'].includes(customerScreen)) {
+        const notifyKey = `${activeBooking.id}:COMPLETED`;
+        if (lastNotifiedBookingStatusRef.current !== notifyKey) {
+          lastNotifiedBookingStatusRef.current = notifyKey;
+          const fareAmt = Math.round(Number(activeBooking.fare?.totalFare || 0));
+          triggerNativeAlert(
+            'Ride Completed',
+            fareAmt > 0
+              ? `You reached your destination. Total fare: ₹${fareAmt}. Thank you for riding with Jitta Drives!`
+              : 'You reached your destination. Thank you for riding with Jitta Drives!'
+          );
+        }
         setCustomerScreen('TRIP_COMPLETED');
       }
     }
@@ -1377,6 +1401,11 @@ export const TaxiAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
             } else if (b.status === 'NO_DRIVERS_FOUND') {
               setCustomerScreen('NO_DRIVERS_AVAILABLE');
             } else if (b.status === 'CANCELLED') {
+              const cancelKey = `${activeBooking.id}:CANCELLED`;
+              if (lastNotifiedBookingStatusRef.current !== cancelKey) {
+                lastNotifiedBookingStatusRef.current = cancelKey;
+                triggerNativeAlert('Ride Cancelled', 'Your ride has been cancelled. Please book a new ride.');
+              }
               setActiveBooking(null);
               setCustomerScreen('HOME');
             }
@@ -1444,10 +1473,15 @@ export const TaxiAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const res = await driverApi.getWallet();
       if (res && res.success && res.data) {
+        const d = res.data;
         setDriverWallet({
-          balance: Number(res.data.balance || res.data.wallet?.balance || 0),
-          todayEarnings: Number(res.data.today_earnings || 0),
-          todayTrips: Number(res.data.today_trips || 0),
+          balance: Number(d.balance ?? d.wallet?.balance ?? 0) || 0,
+          todayEarnings: Number(d.todayEarnings ?? d.today_earnings ?? 0) || 0,
+          todayGross: d.todayGross !== undefined || d.today_gross !== undefined ? (Number(d.todayGross ?? d.today_gross ?? 0) || 0) : undefined,
+          todayCommission: d.todayCommission !== undefined || d.today_commission !== undefined ? (Number(d.todayCommission ?? d.today_commission ?? 0) || 0) : undefined,
+          todayTrips: Number(d.todayTrips ?? d.today_trips ?? 0) || 0,
+          totalCommissionPaid: Number(d.totalCommissionPaid ?? d.total_commission_paid ?? 0) || 0,
+          activeCommissionPercent: Number(d.activeCommissionPercent ?? d.active_commission_percent ?? 15) || 15,
         });
       }
     } catch {}
@@ -1589,9 +1623,10 @@ export const TaxiAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
       baseRide.fare?.totalFare ??
       baseRide.fare_breakdown?.total_fare ??
       0;
-    const resolvedTotalFare = Math.round(Number(rawFare));
-    const resolvedEarnings = Math.round(resolvedTotalFare * 0.85);
-    const resolvedCommission = Math.round(resolvedTotalFare * 0.10);
+    const resolvedTotalFare = Math.round(Number(rawFare) || 0);
+    const activeCommPct = Number(driverWallet?.activeCommissionPercent ?? (driverProfile as any)?.active_commission_percent ?? 15) || 15;
+    const resolvedCommission = Math.round(resolvedTotalFare * (activeCommPct / 100));
+    const resolvedEarnings = Math.round(resolvedTotalFare - resolvedCommission);
     const resolvedPaymentMethod = String(baseRide.payment_method || baseRide.paymentMethod || 'CASH').toUpperCase();
     const pickupObj = baseRide.pickup || baseRide.locations?.find((l: any) => l.type === 'PICKUP') || activeBooking?.pickup;
     const dropObj = baseRide.drop || baseRide.locations?.find((l: any) => l.type === 'DROP' || l.type === 'DROPOFF') || activeBooking?.drop;
@@ -1604,6 +1639,7 @@ export const TaxiAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
       driverEarnings: resolvedEarnings,
       driver_earnings: resolvedEarnings,
       commission: resolvedCommission,
+      commission_percent: activeCommPct,
       paymentMethod: resolvedPaymentMethod,
       payment_method: resolvedPaymentMethod,
       pickup: pickupObj,
@@ -1624,12 +1660,20 @@ export const TaxiAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCustomerScreen('TRIP_COMPLETED');
     setDriverScreen('COMPLETE_RIDE');
 
-    setDriverWallet((prev: any) => ({
-      ...prev,
-      todayEarnings: (prev?.todayEarnings || 0) + resolvedEarnings,
-      todayTrips: (prev?.todayTrips || 0) + 1,
-      balance: (prev?.balance || 0) + (resolvedPaymentMethod === 'CASH' ? -resolvedCommission : resolvedEarnings),
-    }));
+    setDriverWallet((prev: any) => {
+      const curTodayNet = Number(prev?.todayEarnings || 0) || 0;
+      const curTodayGross = Number(prev?.todayGross ?? curTodayNet) || 0;
+      const curTodayComm = Number(prev?.todayCommission || 0) || 0;
+      return {
+        ...prev,
+        todayEarnings: curTodayNet + resolvedEarnings,
+        todayGross: curTodayGross + resolvedTotalFare,
+        todayCommission: curTodayComm + resolvedCommission,
+        todayTrips: (Number(prev?.todayTrips || 0) || 0) + 1,
+        totalCommissionPaid: (Number(prev?.totalCommissionPaid || 0) || 0) + resolvedCommission,
+        balance: (Number(prev?.balance || 0) || 0) + (resolvedPaymentMethod === 'CASH' ? -resolvedCommission : resolvedEarnings),
+      };
+    });
 
     let res: any = null;
     try {
@@ -1653,6 +1697,7 @@ export const TaxiAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
         driverEarnings: finalEarnings,
         driver_earnings: finalEarnings,
         commission: finalCommission,
+        commission_percent: Number(apiData.commission_percent ?? activeCommPct) || activeCommPct,
         paymentMethod: finalMethod,
         payment_method: finalMethod,
       };
@@ -1661,6 +1706,7 @@ export const TaxiAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
       try {
         localStorage.setItem('last_completed_ride_backup', JSON.stringify(finalCompleted));
       } catch {}
+      refreshDriverWallet();
     }
 
     return res || { success: true };
@@ -1832,8 +1878,37 @@ export const TaxiAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [showDriverChat, setShowDriverChat] = useState<boolean>(false);
 
   const seenMsgIdsRef = useRef<Set<string>>(new Set());
+  const chatMessagesRef = useRef<ChatMessage[]>([]);
+  chatMessagesRef.current = chatMessages;
   const customerChatOpenRef = useRef<boolean>(false);
   const driverChatOpenRef = useRef<boolean>(false);
+
+  const getChatReadSet = (role: 'customer' | 'driver', bookingId?: string | null): Set<string> => {
+    if (!bookingId) return new Set();
+    try {
+      const raw = localStorage.getItem(`jitta_chat_read_${role}_${bookingId}`);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+    } catch {
+      return new Set();
+    }
+  };
+
+  const markMessagesReadForRole = (role: 'customer' | 'driver', bookingId: string | null | undefined, msgs: ChatMessage[]) => {
+    if (!bookingId) return;
+    const set = getChatReadSet(role, bookingId);
+    msgs.forEach((m) => {
+      if (m.id) set.add(String(m.id));
+    });
+    try {
+      localStorage.setItem(`jitta_chat_read_${role}_${bookingId}`, JSON.stringify(Array.from(set)));
+    } catch {}
+    if (role === 'customer') {
+      setCustomerUnreadChatCount(0);
+    } else {
+      setDriverUnreadChatCount(0);
+    }
+  };
 
   // Play a pleasant, modern Web Audio notification chime for incoming messages
   const playChatNotificationSound = () => {
@@ -1861,16 +1936,18 @@ export const TaxiAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     customerChatOpenRef.current = (customerScreen === 'CHAT');
     if (customerScreen === 'CHAT') {
-      setCustomerUnreadChatCount(0);
+      const activeId = activeBooking?.id || driverCurrentRide?.id;
+      markMessagesReadForRole('customer', activeId, chatMessagesRef.current);
     }
-  }, [customerScreen]);
+  }, [customerScreen, activeBooking?.id, driverCurrentRide?.id]);
 
   useEffect(() => {
     driverChatOpenRef.current = !!showDriverChat;
     if (showDriverChat) {
-      setDriverUnreadChatCount(0);
+      const activeId = activeBooking?.id || driverCurrentRide?.id;
+      markMessagesReadForRole('driver', activeId, chatMessagesRef.current);
     }
-  }, [showDriverChat]);
+  }, [showDriverChat, activeBooking?.id, driverCurrentRide?.id]);
 
   // Reset chat tracking when active booking changes
   useEffect(() => {
@@ -1979,12 +2056,13 @@ export const TaxiAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const activeId = activeBooking?.id || driverCurrentRide?.id;
     if (!activeId || activeId.startsWith('BK-')) return;
 
-    let isFirstPoll = seenMsgIdsRef.current.size === 0;
+    let cancelled = false;
 
-    const interval = setInterval(async () => {
+    const pollMessages = async () => {
       try {
         const res = await chatApi.getMessages(activeId);
-        if (res && res.success && Array.isArray(res.data) && res.data.length > 0) {
+        if (cancelled) return;
+        if (res && res.success && Array.isArray(res.data)) {
           const mapped: ChatMessage[] = res.data.map((m: any) => {
             const rawMsg = m.message || m.text || '';
             const isVoice = typeof rawMsg === 'string' && rawMsg.startsWith('[VOICE]:');
@@ -1999,39 +2077,53 @@ export const TaxiAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
             };
           });
 
-          if (isFirstPoll) {
-            mapped.forEach((m) => seenMsgIdsRef.current.add(m.id));
-            isFirstPoll = false;
-            setChatMessages(mapped);
-          } else {
-            let newDriverCount = 0;
-            let newCustomerCount = 0;
+          setChatMessages(mapped);
 
-            mapped.forEach((m) => {
-              if (!seenMsgIdsRef.current.has(m.id)) {
-                seenMsgIdsRef.current.add(m.id);
-                if (m.sender === 'DRIVER') newDriverCount++;
-                if (m.sender === 'CUSTOMER') newCustomerCount++;
+          let playCustomerChime = false;
+          let playDriverChime = false;
+
+          if (customerChatOpenRef.current) {
+            markMessagesReadForRole('customer', activeId, mapped);
+          } else {
+            const custRead = getChatReadSet('customer', activeId);
+            const unreadForCust = mapped.filter((m) => m.sender === 'DRIVER' && !custRead.has(m.id));
+            setCustomerUnreadChatCount(unreadForCust.length);
+            unreadForCust.forEach((m) => {
+              if (!seenMsgIdsRef.current.has(`C:${m.id}`)) {
+                seenMsgIdsRef.current.add(`C:${m.id}`);
+                playCustomerChime = true;
               }
             });
+          }
 
-            if (newDriverCount > 0 && !customerChatOpenRef.current) {
-              setCustomerUnreadChatCount((c) => c + newDriverCount);
-              playChatNotificationSound();
-            }
+          if (driverChatOpenRef.current) {
+            markMessagesReadForRole('driver', activeId, mapped);
+          } else {
+            const drvRead = getChatReadSet('driver', activeId);
+            const unreadForDrv = mapped.filter((m) => m.sender === 'CUSTOMER' && !drvRead.has(m.id));
+            setDriverUnreadChatCount(unreadForDrv.length);
+            unreadForDrv.forEach((m) => {
+              if (!seenMsgIdsRef.current.has(`D:${m.id}`)) {
+                seenMsgIdsRef.current.add(`D:${m.id}`);
+                playDriverChime = true;
+              }
+            });
+          }
 
-            if (newCustomerCount > 0 && !driverChatOpenRef.current) {
-              setDriverUnreadChatCount((c) => c + newCustomerCount);
-              playChatNotificationSound();
-            }
-
-            setChatMessages(mapped);
+          if (playCustomerChime || playDriverChime) {
+            playChatNotificationSound();
           }
         }
       } catch {}
-    }, 2500);
+    };
 
-    return () => clearInterval(interval);
+    pollMessages();
+    const interval = setInterval(pollMessages, 2500);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, [activeBooking?.id, driverCurrentRide?.id]);
   const confirmDriverVehicle = () => {};
   const reportDriverVehicleMismatch = (reason: string) => {};
@@ -2168,15 +2260,6 @@ export const TaxiAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (res.data.admin) setAdminProfile(res.data.admin);
         await refreshAdminData();
         return { success: true, message: 'Admin login successful' };
-      }
-      const isDefault = (email.trim().toLowerCase() === 'admin@jittadrives.com' || email.trim().toLowerCase() === 'admin@redtaxi.in') && password === 'admin123';
-      if (isDefault) {
-        const dummy = 'demo_admin_token_' + Date.now();
-        tokenStorage.setAdminToken(dummy);
-        setAdminToken(dummy);
-        setAdminProfile({ id: 'ADMIN-001', name: 'System Administrator', email: 'admin@jittadrives.com', role: 'SUPER_ADMIN' });
-        await refreshAdminData();
-        return { success: true, message: 'Admin logged in successfully' };
       }
       return { success: false, message: res.message || 'Invalid credentials' };
     } catch {

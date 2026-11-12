@@ -261,4 +261,7 @@ export const adminApi = {
 
   saveSettings: (data: any) =>
     request<any>('/admin/settings', { method: 'PUT', body: JSON.stringify(data) }, 'admin'),
+
+  changePassword: (data: { current_password: string; new_password: string }) =>
+    request<any>('/admin/change-password', { method: 'POST', body: JSON.stringify(data) }, 'admin'),
 };

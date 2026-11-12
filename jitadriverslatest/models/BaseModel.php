@@ -76,4 +76,26 @@ abstract class BaseModel
         $stmt = $this->query($sql, $params);
         return $stmt->rowCount();
     }
+
+    /**
+     * Promotes PENDING driver registrations older than 5 minutes to APPROVED.
+     * Leaves REJECTED / SUSPENDED / DELETED drivers untouched.
+     */
+    protected function autoApproveMaturePendingDrivers($driverId = null)
+    {
+        try {
+            if ($driverId !== null && $driverId !== '') {
+                $this->query(
+                    "UPDATE `drivers` SET `approval_status` = 'APPROVED', `updated_at` = NOW() WHERE `id` = ? AND `approval_status` = 'PENDING' AND `created_at` <= DATE_SUB(NOW(), INTERVAL 5 MINUTE)",
+                    array($driverId)
+                );
+            } else {
+                $this->query(
+                    "UPDATE `drivers` SET `approval_status` = 'APPROVED', `updated_at` = NOW() WHERE `approval_status` = 'PENDING' AND `created_at` <= DATE_SUB(NOW(), INTERVAL 5 MINUTE)"
+                );
+            }
+        } catch (Exception $e) {
+            // Non-fatal if schema columns differ
+        }
+    }
 }

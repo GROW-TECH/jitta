@@ -595,7 +595,7 @@ class BookingModel extends BaseModel
             }
         }
 
-        $totalFare = max(0.0, round($subtotal + $taxAmount - $discountAmount, 2));
+        $totalFare = (float)max(0, (int)round($subtotal + $taxAmount - $discountAmount));
 
         return array(
             'base_fare'            => $baseFare,
@@ -664,7 +664,7 @@ class BookingModel extends BaseModel
         $baseFare = round($hours * $hourlyRate, 2);
         $subtotal = round($baseFare + $platformFee, 2);
         $taxAmount = round($subtotal * ($taxPercent / 100.0), 2);
-        $totalFare = round($subtotal + $taxAmount, 2);
+        $totalFare = (float)max(0, (int)round($subtotal + $taxAmount));
 
         return array(
             'base_fare'            => $baseFare,
@@ -784,7 +784,8 @@ class BookingModel extends BaseModel
 
             // Fare breakdown values
             $fare = (isset($data['fare_breakdown']) && is_array($data['fare_breakdown'])) ? $data['fare_breakdown'] : array();
-            $totalFare    = isset($fare['total_fare']) ? (float)$fare['total_fare'] : (isset($data['total_fare']) ? (float)$data['total_fare'] : 0.0);
+            $rawTotalFare = isset($fare['total_fare']) ? (float)$fare['total_fare'] : (isset($data['total_fare']) ? (float)$data['total_fare'] : 0.0);
+            $totalFare    = (float)max(0, (int)round($rawTotalFare));
             $baseFare     = isset($fare['base_fare']) ? (float)$fare['base_fare'] : $totalFare;
             $distanceFare = isset($fare['distance_fare']) ? (float)$fare['distance_fare'] : 0.0;
             $timeFare     = isset($fare['time_fare']) ? (float)$fare['time_fare'] : 0.0;

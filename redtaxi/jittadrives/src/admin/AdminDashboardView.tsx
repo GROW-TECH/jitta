@@ -108,8 +108,8 @@ export const AdminDashboardView: React.FC = () => {
   } = useTaxiApp();
 
   // Admin Login State
-  const [loginEmail, setLoginEmail] = useState<string>('admin@jittadrives.com');
-  const [loginPassword, setLoginPassword] = useState<string>('admin123');
+  const [loginEmail, setLoginEmail] = useState<string>('');
+  const [loginPassword, setLoginPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [loginLoading, setLoginLoading] = useState<boolean>(false);
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -263,6 +263,11 @@ export const AdminDashboardView: React.FC = () => {
   const [settingsData, setSettingsData] = useState<any>(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const [currentAdminPass, setCurrentAdminPass] = useState('');
+  const [newAdminPass, setNewAdminPass] = useState('');
+  const [confirmAdminPass, setConfirmAdminPass] = useState('');
+  const [showChangePassText, setShowChangePassText] = useState(false);
+  const [changingAdminPass, setChangingAdminPass] = useState(false);
 
   const loadAdminSection = useCallback(async () => {
     switch (adminTab) {
@@ -343,6 +348,13 @@ export const AdminDashboardView: React.FC = () => {
   useEffect(() => {
     if (!adminToken) return;
     loadAdminSection();
+    if (!settingsData) {
+      adminApi.getSettings().then((r) => {
+        if (r.success && r.data) {
+          setSettingsData({ ...(r.data || {}) });
+        }
+      }).catch(() => {});
+    }
   }, [loadAdminSection, adminToken]);
 
   // List filter predicates (shared across list rendering + pagination totals)
@@ -536,7 +548,7 @@ export const AdminDashboardView: React.FC = () => {
                   type="email"
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
-                  placeholder="admin@jittadrives.com"
+                  placeholder="Enter administrator email"
                   required
                   className="bg-transparent outline-none w-full font-medium"
                 />
@@ -586,27 +598,6 @@ export const AdminDashboardView: React.FC = () => {
               )}
             </button>
           </form>
-
-          {/* Quick Demo Credentials */}
-          <div className={`pt-4 border-t text-center space-y-2 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
-            <p className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-              Default Admin Credentials:
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                setLoginEmail('admin@jittadrives.com');
-                setLoginPassword('admin123');
-              }}
-              className={`text-[11px] font-bold px-3 py-1.5 rounded-xl border transition ${
-                isLight
-                  ? 'bg-slate-50 border-slate-300 text-slate-700 hover:bg-slate-100'
-                  : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              admin@jittadrives.com / admin123 (Quick Fill)
-            </button>
-          </div>
         </div>
       </div>
     );
@@ -3021,7 +3012,7 @@ export const AdminDashboardView: React.FC = () => {
               <div className={`flex items-center gap-2 p-2 rounded-2xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'}`}>
                 <span className="text-[11px] font-bold text-slate-400">Active Commission:</span>
                 <span className="px-2.5 py-1 bg-[#E85D04]/10 text-[#E85D04] font-black text-xs rounded-xl border border-[#E85D04]/20">
-                  {walletData?.active_commission_percent ?? 10}%
+                  {walletData?.active_commission_percent ?? settingsData?.platform_commission ?? 15}%
                 </span>
                 <div className="flex items-center gap-1.5 ml-2">
                   <input
@@ -3050,6 +3041,7 @@ export const AdminDashboardView: React.FC = () => {
                         if (res.success) {
                           showToast(`Platform commission successfully updated to ${num}%!`);
                           setNewCommissionInput('');
+                          setSettingsData((s: any) => ({ ...(s || {}), platform_commission: String(num) }));
                           const r = await adminApi.getWalletAudit();
                           if (r.success) setWalletData(r.data);
                         } else {
@@ -3082,7 +3074,7 @@ export const AdminDashboardView: React.FC = () => {
                   <div className={`border p-4 rounded-2xl ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'}`}>
                     <span className="text-slate-400 font-bold block">PLATFORM COMMISSION EARNED</span>
                     <span className="text-xl font-extrabold text-purple-500">₹{Number(walletData.platform_commission || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                    <span className="block text-[10px] mt-1 text-slate-400">Total {walletData.active_commission_percent ?? 10}% platform fee retained from rides</span>
+                    <span className="block text-[10px] mt-1 text-slate-400">Total {walletData.active_commission_percent ?? settingsData?.platform_commission ?? 15}% platform fee retained from rides</span>
                   </div>
                 </div>
 
@@ -3510,7 +3502,8 @@ export const AdminDashboardView: React.FC = () => {
           const totalCount = filtered.length;
           const completionRate = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 100;
           const avgFare = completedCount > 0 ? Math.round(totalRevenue / completedCount) : (totalCount > 0 ? Math.round(totalRevenue / totalCount) : 0);
-          const platformCommission = Math.round(totalRevenue * 0.15);
+          const activeCommPct = Number(settingsData?.platform_commission || walletData?.active_commission_percent || 15) || 15;
+          const platformCommission = Math.round(totalRevenue * (activeCommPct / 100));
 
           // Payment Methods
           const cashCount = filtered.filter((b: any) => (b.payment_method || b.paymentMethod || '').toUpperCase() === 'CASH').length;
@@ -3686,7 +3679,7 @@ export const AdminDashboardView: React.FC = () => {
                   <div className={`text-2xl font-black text-[#E85D04]`}>
                     ₹{platformCommission.toLocaleString('en-IN')}
                   </div>
-                  <span className="text-[10px] font-bold text-[#E85D04]">~15% Platform Take Rate</span>
+                  <span className="text-[10px] font-bold text-[#E85D04]">~{activeCommPct}% Platform Take Rate</span>
                 </div>
               </div>
 
@@ -4076,49 +4069,149 @@ export const AdminDashboardView: React.FC = () => {
 
         {/* System Settings */}
         {adminTab === 'SETTINGS' && (
-          <div className={`border rounded-3xl p-5 space-y-4 shadow-xl max-w-xl ${isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-800 text-white'}`}>
-            <h2 className="text-lg font-bold">System & Dispatch Settings</h2>
-            {settingsLoading ? (
-              <p className={`text-xs ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>Loading settings…</p>
-            ) : settingsData ? (
-              <div className="space-y-3 text-xs">
+          <div className="space-y-6 max-w-xl">
+            <div className={`border rounded-3xl p-5 space-y-4 shadow-xl ${isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-800 text-white'}`}>
+              <h2 className="text-lg font-bold">System & Dispatch Settings</h2>
+              {settingsLoading ? (
+                <p className={`text-xs ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>Loading settings…</p>
+              ) : settingsData ? (
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className={`font-bold uppercase block mb-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Platform Commission %</label>
+                    <input
+                      type="number"
+                      value={settingsData.platform_commission ?? ''}
+                      onChange={(e) => setSettingsData((s: any) => ({ ...s, platform_commission: e.target.value }))}
+                      className={`w-full border rounded-xl p-2.5 outline-none ${isLight ? 'bg-slate-50 border-slate-200 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'}`}
+                    />
+                  </div>
+                  <div>
+                    <label className={`font-bold uppercase block mb-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Emergency Helpline Number</label>
+                    <input
+                      type="text"
+                      value={settingsData.sos_number ?? ''}
+                      onChange={(e) => setSettingsData((s: any) => ({ ...s, sos_number: e.target.value }))}
+                      className={`w-full border rounded-xl p-2.5 outline-none ${isLight ? 'bg-slate-50 border-slate-200 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'}`}
+                    />
+                  </div>
+                  <button
+                    disabled={settingsSaving}
+                    onClick={async () => {
+                      setSettingsSaving(true);
+                      const res = await adminApi.saveSettings({
+                        platform_commission: settingsData.platform_commission ?? '15',
+                        sos_number: settingsData.sos_number ?? '112',
+                      });
+                      setSettingsSaving(false);
+                      showToast(res.success ? 'System settings saved' : (res.message || 'Failed to save settings'));
+                    }}
+                    className={`w-full py-3 rounded-2xl shadow transition font-bold ${settingsSaving ? 'opacity-50 bg-[#E85D04] text-white' : 'bg-[#E85D04] hover:bg-[#C2410C] text-white'}`}
+                  >
+                    {settingsSaving ? 'Saving…' : 'Save System Config'}
+                  </button>
+                </div>
+              ) : (
+                <p className={`text-xs ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>Settings unavailable.</p>
+              )}
+            </div>
+
+            {/* Admin Password Security Card */}
+            <div className={`border rounded-3xl p-5 space-y-4 shadow-xl ${isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-800 text-white'}`}>
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-lg font-bold flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-[#E85D04]" />
+                  <span>Change Admin Password</span>
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setShowChangePassText((v) => !v)}
+                  className="text-xs font-bold text-slate-400 hover:text-[#E85D04] flex items-center gap-1"
+                >
+                  {showChangePassText ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  <span>{showChangePassText ? 'Hide' : 'Show'}</span>
+                </button>
+              </div>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!currentAdminPass || !newAdminPass) {
+                    showToast('Please enter current and new password');
+                    return;
+                  }
+                  if (newAdminPass.length < 6) {
+                    showToast('New password must be at least 6 characters');
+                    return;
+                  }
+                  if (newAdminPass !== confirmAdminPass) {
+                    showToast('New password and confirmation do not match');
+                    return;
+                  }
+                  setChangingAdminPass(true);
+                  try {
+                    const res = await adminApi.changePassword({
+                      current_password: currentAdminPass,
+                      new_password: newAdminPass,
+                    });
+                    if (res.success) {
+                      showToast('Admin password updated successfully');
+                      setCurrentAdminPass('');
+                      setNewAdminPass('');
+                      setConfirmAdminPass('');
+                    } else {
+                      showToast(res.message || 'Failed to update password');
+                    }
+                  } catch (err: any) {
+                    showToast(err?.message || 'Failed to update password');
+                  } finally {
+                    setChangingAdminPass(false);
+                  }
+                }}
+                className="space-y-3 text-xs"
+              >
                 <div>
-                  <label className={`font-bold uppercase block mb-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Platform Commission %</label>
+                  <label className={`font-bold uppercase block mb-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Current Password</label>
                   <input
-                    type="number"
-                    value={settingsData.platform_commission ?? ''}
-                    onChange={(e) => setSettingsData((s: any) => ({ ...s, platform_commission: e.target.value }))}
+                    type={showChangePassText ? 'text' : 'password'}
+                    value={currentAdminPass}
+                    onChange={(e) => setCurrentAdminPass(e.target.value)}
+                    placeholder="Enter current password"
+                    required
                     className={`w-full border rounded-xl p-2.5 outline-none ${isLight ? 'bg-slate-50 border-slate-200 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'}`}
                   />
                 </div>
                 <div>
-                  <label className={`font-bold uppercase block mb-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Emergency Helpline Number</label>
+                  <label className={`font-bold uppercase block mb-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>New Password</label>
                   <input
-                    type="text"
-                    value={settingsData.sos_number ?? ''}
-                    onChange={(e) => setSettingsData((s: any) => ({ ...s, sos_number: e.target.value }))}
+                    type={showChangePassText ? 'text' : 'password'}
+                    value={newAdminPass}
+                    onChange={(e) => setNewAdminPass(e.target.value)}
+                    placeholder="Minimum 6 characters"
+                    minLength={6}
+                    required
+                    className={`w-full border rounded-xl p-2.5 outline-none ${isLight ? 'bg-slate-50 border-slate-200 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'}`}
+                  />
+                </div>
+                <div>
+                  <label className={`font-bold uppercase block mb-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Confirm New Password</label>
+                  <input
+                    type={showChangePassText ? 'text' : 'password'}
+                    value={confirmAdminPass}
+                    onChange={(e) => setConfirmAdminPass(e.target.value)}
+                    placeholder="Re-enter new password"
+                    minLength={6}
+                    required
                     className={`w-full border rounded-xl p-2.5 outline-none ${isLight ? 'bg-slate-50 border-slate-200 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'}`}
                   />
                 </div>
                 <button
-                  disabled={settingsSaving}
-                  onClick={async () => {
-                    setSettingsSaving(true);
-                    const res = await adminApi.saveSettings({
-                      platform_commission: settingsData.platform_commission ?? '15',
-                      sos_number: settingsData.sos_number ?? '112',
-                    });
-                    setSettingsSaving(false);
-                    showToast(res.success ? 'System settings saved' : (res.message || 'Failed to save settings'));
-                  }}
-                  className={`w-full py-3 rounded-2xl shadow transition font-bold ${settingsSaving ? 'opacity-50 bg-[#E85D04] text-white' : 'bg-[#E85D04] hover:bg-[#C2410C] text-white'}`}
+                  type="submit"
+                  disabled={changingAdminPass}
+                  className={`w-full py-3 rounded-2xl shadow transition font-bold ${changingAdminPass ? 'opacity-50 bg-slate-800 text-white' : 'bg-slate-800 hover:bg-slate-700 text-white'}`}
                 >
-                  {settingsSaving ? 'Saving…' : 'Save System Config'}
+                  {changingAdminPass ? 'Updating Password…' : 'Update Admin Password'}
                 </button>
-              </div>
-            ) : (
-              <p className={`text-xs ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>Settings unavailable.</p>
-            )}
+              </form>
+            </div>
           </div>
         )}
       </main>

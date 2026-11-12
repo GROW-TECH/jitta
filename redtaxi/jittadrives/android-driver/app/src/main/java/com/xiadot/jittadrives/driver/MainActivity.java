@@ -1,10 +1,13 @@
 package com.xiadot.jittadrives.driver;
 
+import android.Manifest;
+import android.app.Activity;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentSender;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -18,24 +21,36 @@ import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 
+import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebViewClient;
+import com.google.android.gms.common.api.ResolvableApiException;
+import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.location.LocationSettingsRequest;
+import com.google.android.gms.location.Priority;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class MainActivity extends BridgeActivity {
     private static final String CHANNEL_ID = "jitta_captain_alerts";
     private static final String CHANNEL_NAME = "Jitta Captain Urgent Alerts";
-    private static final int NOTIF_REQ_CODE = 101;
+    private static final int PERM_REQ_CODE = 101;
+    private static final int GPS_SETTINGS_REQ_CODE = 102;
+
+    private boolean gpsPromptDismissedThisForeground = false;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         createNotificationChannel();
-        requestNotificationPermission();
+        ensureRuntimePermissions();
 
         try {
             if (this.bridge != null && this.bridge.getWebView() != null) {
@@ -77,12 +92,87 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    private void requestNotificationPermission() {
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (hasLocationPermission() && !gpsPromptDismissedThisForeground) {
+            promptToEnableDeviceGps();
+        }
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        gpsPromptDismissedThisForeground = false;
+    }
+
+    private boolean hasLocationPermission() {
+        return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                || ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void ensureRuntimePermissions() {
+        List<String> needed = new ArrayList<>();
+        if (!hasLocationPermission()) {
+            needed.add(Manifest.permission.ACCESS_FINE_LOCATION);
+            needed.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
-                    != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this,
-                        new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, NOTIF_REQ_CODE);
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                needed.add(Manifest.permission.POST_NOTIFICATIONS);
+            }
+        }
+        if (!needed.isEmpty()) {
+            ActivityCompat.requestPermissions(this, needed.toArray(new String[0]), PERM_REQ_CODE);
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PERM_REQ_CODE && hasLocationPermission() && !gpsPromptDismissedThisForeground) {
+            promptToEnableDeviceGps();
+        }
+    }
+
+    private void promptToEnableDeviceGps() {
+        LocationRequest locationRequest = new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000L).build();
+        LocationSettingsRequest settingsRequest = new LocationSettingsRequest.Builder()
+                .addLocationRequest(locationRequest)
+                .setAlwaysShow(true)
+                .build();
+
+        LocationServices.getSettingsClient(this)
+                .checkLocationSettings(settingsRequest)
+                .addOnFailureListener(this, e -> {
+                    if (e instanceof ResolvableApiException) {
+                        try {
+                            ResolvableApiException resolvable = (ResolvableApiException) e;
+                            resolvable.startResolutionForResult(MainActivity.this, GPS_SETTINGS_REQ_CODE);
+                        } catch (IntentSender.SendIntentException ignored) {
+                        }
+                    }
+                });
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == GPS_SETTINGS_REQ_CODE) {
+            if (resultCode == Activity.RESULT_OK) {
+                gpsPromptDismissedThisForeground = false;
+                try {
+                    if (this.bridge != null && this.bridge.getWebView() != null) {
+                        this.bridge.getWebView().post(() ->
+                                this.bridge.getWebView().evaluateJavascript(
+                                        "window.dispatchEvent(new CustomEvent('jitta:device-gps-enabled'));",
+                                        null
+                                ));
+                    }
+                } catch (Exception ignored) {
+                }
+            } else {
+                gpsPromptDismissedThisForeground = true;
             }
         }
     }

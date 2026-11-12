@@ -80,8 +80,15 @@ export const CustomerActiveTripView: React.FC = () => {
   );
 
   const driverMarkerVariant = useMemo(
-    () => resolveDriverMarkerVariant(activeBooking?.vehicleCategory || activeBooking?.rideType || driverProfile?.vehicleType),
-    [activeBooking?.vehicleCategory, activeBooking?.rideType, driverProfile?.vehicleType]
+    () =>
+      resolveDriverMarkerVariant(
+        activeBooking?.vehicleCategory ||
+          (activeBooking as any)?.vehicle_category ||
+          (activeBooking as any)?.vehicle?.vehicle_type ||
+          activeBooking?.rideType ||
+          driverProfile?.vehicleType
+      ),
+    [activeBooking, driverProfile?.vehicleType]
   );
 
   const driverRouteMode = useMemo<'NONE' | 'TO_PICKUP' | 'TO_DROP'>(() => {

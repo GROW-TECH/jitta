@@ -75,9 +75,38 @@ export const CustomerPostTripView: React.FC = () => {
     setCustomerScreen(nextScreen);
   };
 
-  const downloadInvoice = () => {
+  const loadLogoDataUrl = (): Promise<string | null> =>
+    new Promise((resolve) => {
+      try {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth || 256;
+            canvas.height = img.naturalHeight || 256;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+              resolve(null);
+              return;
+            }
+            ctx.drawImage(img, 0, 0);
+            resolve(canvas.toDataURL('image/png'));
+          } catch {
+            resolve(null);
+          }
+        };
+        img.onerror = () => resolve(null);
+        img.src = '/logo.png';
+      } catch {
+        resolve(null);
+      }
+    });
+
+  const downloadInvoice = async () => {
     if (!booking) return;
 
+    const logoDataUrl = await loadLogoDataUrl();
     const doc = new jsPDF();
 
     // Premium Color Palette
@@ -94,27 +123,32 @@ export const CustomerPostTripView: React.FC = () => {
     doc.setFillColor(...brandOrange);
     doc.rect(0, 0, 210, 3, 'F');
 
-    // 2. Header Background (42mm)
+    // 2. Header Background (40mm)
     doc.setFillColor(...darkHeader);
-    doc.rect(0, 3, 210, 42, 'F');
+    doc.rect(0, 3, 210, 40, 'F');
 
-    // 3. Brand Logo / Name: "Jitta Drives"
+    // 3. Brand Logo + Name: "Jitta Drives"
+    let brandTextX = 14;
+    if (logoDataUrl) {
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(14, 10, 22, 22, 3, 3, 'F');
+      doc.addImage(logoDataUrl, 'PNG', 15, 11, 20, 20);
+      brandTextX = 41;
+    }
+
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(22);
     doc.setTextColor(255, 255, 255);
-    doc.text('Jitta', 14, 20);
+    doc.text('Jitta', brandTextX, 22);
     const jittaWidth = doc.getTextWidth('Jitta');
     doc.setTextColor(...brandOrange);
-    doc.text('Drives', 14 + jittaWidth + 2, 20);
+    doc.text('Drives', brandTextX + jittaWidth + 2, 22);
 
-    // Tagline & Company Details
+    // Tagline
     doc.setFontSize(8.5);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(203, 213, 225); // Slate 300
-    doc.text('We drive your Rides • Premier City & Outstation Rides', 14, 27);
-    doc.setFontSize(7.5);
-    doc.setTextColor(148, 163, 184); // Slate 400
-    doc.text('GSTIN: 33AAAAA0000A1Z5 • Jitta Drives India Pvt Ltd • Tamil Nadu', 14, 34);
+    doc.text('We drive your Rides • City & Outstation Rides', brandTextX, 29);
 
     // 4. "PAID RECEIPT" Pill Badge (Right side)
     doc.setFillColor(...emeraldGreen);
@@ -124,7 +158,7 @@ export const CustomerPostTripView: React.FC = () => {
     doc.setTextColor(255, 255, 255);
     doc.text('PAID RECEIPT', 176, 19, { align: 'center' });
 
-    let y = 52;
+    let y = 50;
 
     // 5. Booking Info Card
     doc.setFillColor(...cardBg);
@@ -232,24 +266,12 @@ export const CustomerPostTripView: React.FC = () => {
     y += 36;
 
     // 8. Itemized Fare Table (AutoTable) with 100% proper width and Rs. currency formatting
-    const baseFare = Number(booking.fare?.baseFare || 0).toFixed(2);
-    const distFare = Number(booking.fare?.distanceFare || 0).toFixed(2);
-    const platformFee = Number(booking.fare?.platformFee || 0).toFixed(2);
-    const tax = Number(booking.fare?.tax || 0).toFixed(2);
-    const discount = Number(booking.fare?.discount || 0);
     const totalFare = Number(booking.fare?.totalFare || 0).toFixed(2);
     const distanceKm = booking.distanceKm ? `${booking.distanceKm} km` : '';
 
     const tableBody: any[] = [
-      ['Base Fare', `Rs. ${baseFare}`],
-      [`Distance Fare ${distanceKm ? `(${distanceKm})` : ''}`, `Rs. ${distFare}`],
-      ['Platform Fee', `Rs. ${platformFee}`],
-      ['GST Tax (5%)', `Rs. ${tax}`],
+      [`Total Ride Fare${distanceKm ? ` (${distanceKm})` : ''}`, `Rs. ${totalFare}`],
     ];
-
-    if (discount > 0) {
-      tableBody.push(['Coupon Discount', `- Rs. ${discount.toFixed(2)}`]);
-    }
 
     const paymentLabel = booking.paymentMethod ? `Total Amount Paid (${booking.paymentMethod})` : 'Total Amount Paid';
 
@@ -296,7 +318,7 @@ export const CustomerPostTripView: React.FC = () => {
     doc.setFontSize(7.5);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...textMuted);
-    doc.text('This is a computer-generated tax invoice and does not require a physical signature.', 105, finalY + 6, { align: 'center' });
+    doc.text('This is a computer-generated invoice and does not require a physical signature.', 105, finalY + 6, { align: 'center' });
     doc.text('Thank you for riding with Jitta Drives! For support, email support@jittadrives.com or call 24x7 support.', 105, finalY + 11, { align: 'center' });
 
     // Save PDF
@@ -373,7 +395,7 @@ export const CustomerPostTripView: React.FC = () => {
             onClick={() => dismissCompletedRide('INVOICE')}
             className="w-full bg-white hover:bg-[#F5F5F3] text-[#171717] font-bold py-2.5 rounded-2xl border border-black/10 flex items-center justify-center gap-2 text-xs transition"
           >
-            <span>{language === 'ta' ? 'ரசீதை மட்டும் காண்க' : 'View Tax Invoice Directly'}</span>
+            <span>{language === 'ta' ? 'ரசீதை மட்டும் காண்க' : 'View Invoice Directly'}</span>
           </button>
 
           <button
@@ -507,13 +529,13 @@ export const CustomerPostTripView: React.FC = () => {
     );
   }
 
-  // 28. Professional Tax Invoice Screen
+  // 28. Ride Invoice Screen
   if (customerScreen === 'INVOICE') {
     if (!booking) {
       return (
         <div className="h-full flex flex-col justify-between bg-[#FAFAF8] text-[#171717] p-6">
           <div className="text-center py-12 space-y-3">
-            <h2 className="text-lg font-bold">Tax Invoice</h2>
+            <h2 className="text-lg font-bold">Invoice</h2>
             <p className="text-xs text-[#737373]">No invoice details found for this selection.</p>
           </div>
           <button
@@ -540,7 +562,7 @@ export const CustomerPostTripView: React.FC = () => {
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
-            <h2 className="text-sm sm:text-base font-bold">Tax Invoice</h2>
+            <h2 className="text-sm sm:text-base font-bold">Invoice</h2>
             <div className="w-9" />
           </div>
 
@@ -550,9 +572,19 @@ export const CustomerPostTripView: React.FC = () => {
               PAID RECEIPT
             </div>
 
-            <div className="border-b border-black/10 pb-2.5 sm:pb-3">
-              <h3 className="font-black text-base sm:text-lg tracking-wider text-[#171717]">Jitta <span className="text-[#E85D04]">Drives</span></h3>
-              <p className="text-[9px] sm:text-[10px] text-[#737373] truncate">GSTIN: 33AAAAA0000A1Z5 • Jitta Drives India Pvt Ltd</p>
+            <div className="border-b border-black/10 pb-2.5 sm:pb-3 flex items-center gap-3 pr-20">
+              <img
+                src="/logo.png"
+                alt="Jitta Drives"
+                className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl object-contain bg-[#FAFAF8] border border-black/5 p-1 shrink-0"
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+              />
+              <div className="min-w-0">
+                <h3 className="font-black text-base sm:text-lg tracking-wider text-[#171717] leading-tight">
+                  Jitta <span className="text-[#E85D04]">Drives</span>
+                </h3>
+                <p className="text-[10px] text-[#737373] truncate">We drive your Rides</p>
+              </div>
             </div>
 
             {/* Booking & Date */}
@@ -593,31 +625,9 @@ export const CustomerPostTripView: React.FC = () => {
               </div>
             </div>
 
-            {/* Price Table */}
-            <div className="space-y-1.5 text-xs">
-              <div className="flex justify-between text-[#737373]">
-                <span>Base Fare</span>
-                <span>₹{booking.fare.baseFare}</span>
-              </div>
-              <div className="flex justify-between text-[#737373]">
-                <span>Distance Fare ({booking.distanceKm} km)</span>
-                <span>₹{booking.fare.distanceFare}</span>
-              </div>
-              <div className="flex justify-between text-[#737373]">
-                <span>Platform Fee</span>
-                <span>₹{booking.fare.platformFee}</span>
-              </div>
-              <div className="flex justify-between text-[#737373]">
-                <span>GST Tax (5%)</span>
-                <span>₹{booking.fare.tax}</span>
-              </div>
-              {booking.fare.discount > 0 && (
-                <div className="flex justify-between text-[#22A06B] font-bold">
-                  <span>Coupon Discount</span>
-                  <span>-₹{booking.fare.discount}</span>
-                </div>
-              )}
-              <div className="flex justify-between text-base font-black text-[#171717] border-t border-black/10 pt-2.5 mt-1">
+            {/* Total Price */}
+            <div className="pt-1">
+              <div className="flex justify-between items-center text-base font-black text-[#171717]">
                 <span>Total Amount Paid</span>
                 <span className="text-[#E85D04]">₹{booking.fare.totalFare}</span>
               </div>

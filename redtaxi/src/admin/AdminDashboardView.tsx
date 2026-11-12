@@ -108,8 +108,8 @@ export const AdminDashboardView: React.FC = () => {
   } = useTaxiApp();
 
   // Admin Login State
-  const [loginEmail, setLoginEmail] = useState<string>('admin@jittadrives.com');
-  const [loginPassword, setLoginPassword] = useState<string>('admin123');
+  const [loginEmail, setLoginEmail] = useState<string>('');
+  const [loginPassword, setLoginPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [loginLoading, setLoginLoading] = useState<boolean>(false);
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -248,6 +248,11 @@ export const AdminDashboardView: React.FC = () => {
   const [settingsData, setSettingsData] = useState<any>(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [passwordChanging, setPasswordChanging] = useState(false);
+  const [showChangePasswords, setShowChangePasswords] = useState(false);
 
   const loadAdminSection = useCallback(async () => {
     switch (adminTab) {
@@ -315,6 +320,15 @@ export const AdminDashboardView: React.FC = () => {
     if (!adminToken) return;
     loadAdminSection();
   }, [loadAdminSection, adminToken]);
+
+  useEffect(() => {
+    if (!adminToken || settingsData) return;
+    adminApi.getSettings().then((r) => {
+      if (r.success && r.data) {
+        setSettingsData({ ...(r.data || {}) });
+      }
+    }).catch(() => { /* ignore */ });
+  }, [adminToken, settingsData]);
 
   // List filter predicates (shared across list rendering + pagination totals)
   const customerMatches = (c: any) => {
@@ -506,7 +520,7 @@ export const AdminDashboardView: React.FC = () => {
                   type="email"
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
-                  placeholder="admin@jittadrives.com"
+                  placeholder="Enter admin email"
                   required
                   className="bg-transparent outline-none w-full font-medium"
                 />
@@ -556,27 +570,6 @@ export const AdminDashboardView: React.FC = () => {
               )}
             </button>
           </form>
-
-          {/* Quick Demo Credentials */}
-          <div className={`pt-4 border-t text-center space-y-2 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
-            <p className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-              Default Admin Credentials:
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                setLoginEmail('admin@jittadrives.com');
-                setLoginPassword('admin123');
-              }}
-              className={`text-[11px] font-bold px-3 py-1.5 rounded-xl border transition ${
-                isLight
-                  ? 'bg-slate-50 border-slate-300 text-slate-700 hover:bg-slate-100'
-                  : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              admin@jittadrives.com / admin123 (Quick Fill)
-            </button>
-          </div>
         </div>
       </div>
     );
@@ -2696,6 +2689,7 @@ export const AdminDashboardView: React.FC = () => {
                         if (res.success) {
                           showToast(`Platform commission successfully updated to ${num}%!`);
                           setNewCommissionInput('');
+                          setSettingsData((prev: any) => ({ ...(prev || {}), platform_commission: String(num) }));
                           const r = await adminApi.getWalletAudit();
                           if (r.success) setWalletData(r.data);
                         } else {
@@ -3156,7 +3150,9 @@ export const AdminDashboardView: React.FC = () => {
           const totalCount = filtered.length;
           const completionRate = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 100;
           const avgFare = completedCount > 0 ? Math.round(totalRevenue / completedCount) : (totalCount > 0 ? Math.round(totalRevenue / totalCount) : 0);
-          const platformCommission = Math.round(totalRevenue * 0.15);
+          const rawCommPct = Number(settingsData?.platform_commission ?? walletData?.active_commission_percent ?? 15);
+          const activeCommissionPercent = Number.isFinite(rawCommPct) && rawCommPct > 0 ? rawCommPct : 15;
+          const platformCommission = Math.round(totalRevenue * (activeCommissionPercent / 100));
 
           // Payment Methods
           const cashCount = filtered.filter((b: any) => (b.payment_method || b.paymentMethod || '').toUpperCase() === 'CASH').length;
@@ -3332,7 +3328,7 @@ export const AdminDashboardView: React.FC = () => {
                   <div className={`text-2xl font-black text-[#E85D04]`}>
                     ₹{platformCommission.toLocaleString('en-IN')}
                   </div>
-                  <span className="text-[10px] font-bold text-[#E85D04]">~15% Platform Take Rate</span>
+                  <span className="text-[10px] font-bold text-[#E85D04]">~{activeCommissionPercent}% Platform Take Rate</span>
                 </div>
               </div>
 
@@ -3722,49 +3718,154 @@ export const AdminDashboardView: React.FC = () => {
 
         {/* System Settings */}
         {adminTab === 'SETTINGS' && (
-          <div className={`border rounded-3xl p-5 space-y-4 shadow-xl max-w-xl ${isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-800 text-white'}`}>
-            <h2 className="text-lg font-bold">System & Dispatch Settings</h2>
-            {settingsLoading ? (
-              <p className={`text-xs ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>Loading settings…</p>
-            ) : settingsData ? (
-              <div className="space-y-3 text-xs">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+            <div className={`border rounded-3xl p-5 space-y-4 shadow-xl ${isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-800 text-white'}`}>
+              <h2 className="text-lg font-bold">System & Dispatch Settings</h2>
+              {settingsLoading ? (
+                <p className={`text-xs ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>Loading settings…</p>
+              ) : settingsData ? (
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className={`font-bold uppercase block mb-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Platform Commission %</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      step="0.5"
+                      value={settingsData.platform_commission ?? ''}
+                      onChange={(e) => setSettingsData((s: any) => ({ ...s, platform_commission: e.target.value }))}
+                      className={`w-full border rounded-xl p-2.5 outline-none ${isLight ? 'bg-slate-50 border-slate-200 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'}`}
+                    />
+                  </div>
+                  <div>
+                    <label className={`font-bold uppercase block mb-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Emergency Helpline Number</label>
+                    <input
+                      type="text"
+                      value={settingsData.sos_number ?? ''}
+                      onChange={(e) => setSettingsData((s: any) => ({ ...s, sos_number: e.target.value }))}
+                      className={`w-full border rounded-xl p-2.5 outline-none ${isLight ? 'bg-slate-50 border-slate-200 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'}`}
+                    />
+                  </div>
+                  <button
+                    disabled={settingsSaving}
+                    onClick={async () => {
+                      setSettingsSaving(true);
+                      const res = await adminApi.saveSettings({
+                        platform_commission: settingsData.platform_commission ?? '15',
+                        sos_number: settingsData.sos_number ?? '112',
+                      });
+                      setSettingsSaving(false);
+                      showToast(res.success ? 'System settings saved' : (res.message || 'Failed to save settings'));
+                    }}
+                    className={`w-full py-3 rounded-2xl shadow transition font-bold ${settingsSaving ? 'opacity-50 bg-[#E85D04] text-white' : 'bg-[#E85D04] hover:bg-[#C2410C] text-white'}`}
+                  >
+                    {settingsSaving ? 'Saving…' : 'Save System Config'}
+                  </button>
+                </div>
+              ) : (
+                <p className={`text-xs ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>Settings unavailable.</p>
+              )}
+            </div>
+
+            {/* Admin Account & Password Security */}
+            <div className={`border rounded-3xl p-5 space-y-4 shadow-xl ${isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-800 text-white'}`}>
+              <div className="flex items-center justify-between gap-2">
                 <div>
-                  <label className={`font-bold uppercase block mb-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Platform Commission %</label>
+                  <h2 className="text-lg font-bold">Admin Password Security</h2>
+                  <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                    Change the sign-in password for your administrator account.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowChangePasswords((v) => !v)}
+                  className={`p-2 rounded-xl border transition ${isLight ? 'bg-slate-50 border-slate-200 text-slate-600' : 'bg-slate-950 border-slate-800 text-slate-300'}`}
+                  aria-label={showChangePasswords ? 'Hide password fields' : 'Show password fields'}
+                >
+                  {showChangePasswords ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!currentPassword || !newPassword) {
+                    showToast('Please enter your current and new password');
+                    return;
+                  }
+                  if (newPassword.length < 6) {
+                    showToast('New password must be at least 6 characters');
+                    return;
+                  }
+                  if (newPassword !== confirmNewPassword) {
+                    showToast('New password and confirmation do not match');
+                    return;
+                  }
+                  setPasswordChanging(true);
+                  try {
+                    const res = await adminApi.changePassword({
+                      current_password: currentPassword,
+                      new_password: newPassword,
+                    });
+                    if (res.success) {
+                      showToast(res.message || 'Admin password updated successfully');
+                      setCurrentPassword('');
+                      setNewPassword('');
+                      setConfirmNewPassword('');
+                    } else {
+                      showToast(res.message || 'Failed to update admin password');
+                    }
+                  } catch (err: any) {
+                    showToast(err?.message || 'Error updating admin password');
+                  } finally {
+                    setPasswordChanging(false);
+                  }
+                }}
+                className="space-y-3 text-xs"
+              >
+                <div>
+                  <label className={`font-bold uppercase block mb-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Current Password</label>
                   <input
-                    type="number"
-                    value={settingsData.platform_commission ?? ''}
-                    onChange={(e) => setSettingsData((s: any) => ({ ...s, platform_commission: e.target.value }))}
+                    type={showChangePasswords ? 'text' : 'password'}
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    placeholder="Enter current password"
+                    required
                     className={`w-full border rounded-xl p-2.5 outline-none ${isLight ? 'bg-slate-50 border-slate-200 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'}`}
                   />
                 </div>
                 <div>
-                  <label className={`font-bold uppercase block mb-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Emergency Helpline Number</label>
+                  <label className={`font-bold uppercase block mb-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>New Password</label>
                   <input
-                    type="text"
-                    value={settingsData.sos_number ?? ''}
-                    onChange={(e) => setSettingsData((s: any) => ({ ...s, sos_number: e.target.value }))}
+                    type={showChangePasswords ? 'text' : 'password'}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="At least 6 characters"
+                    required
+                    minLength={6}
+                    className={`w-full border rounded-xl p-2.5 outline-none ${isLight ? 'bg-slate-50 border-slate-200 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'}`}
+                  />
+                </div>
+                <div>
+                  <label className={`font-bold uppercase block mb-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Confirm New Password</label>
+                  <input
+                    type={showChangePasswords ? 'text' : 'password'}
+                    value={confirmNewPassword}
+                    onChange={(e) => setConfirmNewPassword(e.target.value)}
+                    placeholder="Re-enter new password"
+                    required
+                    minLength={6}
                     className={`w-full border rounded-xl p-2.5 outline-none ${isLight ? 'bg-slate-50 border-slate-200 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'}`}
                   />
                 </div>
                 <button
-                  disabled={settingsSaving}
-                  onClick={async () => {
-                    setSettingsSaving(true);
-                    const res = await adminApi.saveSettings({
-                      platform_commission: settingsData.platform_commission ?? '15',
-                      sos_number: settingsData.sos_number ?? '112',
-                    });
-                    setSettingsSaving(false);
-                    showToast(res.success ? 'System settings saved' : (res.message || 'Failed to save settings'));
-                  }}
-                  className={`w-full py-3 rounded-2xl shadow transition font-bold ${settingsSaving ? 'opacity-50 bg-[#E85D04] text-white' : 'bg-[#E85D04] hover:bg-[#C2410C] text-white'}`}
+                  type="submit"
+                  disabled={passwordChanging}
+                  className={`w-full py-3 rounded-2xl shadow transition font-bold ${passwordChanging ? 'opacity-50 bg-slate-700 text-white' : 'bg-slate-800 hover:bg-slate-700 text-white border border-slate-700'}`}
                 >
-                  {settingsSaving ? 'Saving…' : 'Save System Config'}
+                  {passwordChanging ? 'Updating Password…' : 'Update Admin Password'}
                 </button>
-              </div>
-            ) : (
-              <p className={`text-xs ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>Settings unavailable.</p>
-            )}
+              </form>
+            </div>
           </div>
         )}
       </main>

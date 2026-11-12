@@ -34,6 +34,28 @@ class DriverModel extends BaseModel
         return $cols;
     }
 
+    /**
+     * Resolve active platform commission percentage from system_settings -> driver override -> 15% default
+     */
+    public function getEffectiveCommissionPercent($driverId = null)
+    {
+        try {
+            $settingRow = $this->fetchOne("SELECT v FROM system_settings WHERE k = 'platform_commission'");
+            if ($settingRow && is_numeric($settingRow['v']) && (float)$settingRow['v'] > 0) {
+                return (float)$settingRow['v'];
+            }
+        } catch (\Exception $e) {}
+
+        if ($driverId) {
+            $drv = $this->fetchOne("SELECT `commission_percent` FROM `drivers` WHERE `id` = ? LIMIT 1", array($driverId));
+            if ($drv && isset($drv['commission_percent']) && (float)$drv['commission_percent'] > 0) {
+                return (float)$drv['commission_percent'];
+            }
+        }
+
+        return 15.00;
+    }
+
     public function checkAndResetDailyWallet($driverId = null)
     {
         $todayStr = date('Y-m-d');
@@ -49,6 +71,7 @@ class DriverModel extends BaseModel
 
     public function findByPhone($phone)
     {
+        $this->autoApproveMaturePendingDrivers();
         $this->checkAndResetDailyWallet();
         $wCols = $this->getExistingColumns('driver_wallets');
         $vCols = $this->getExistingColumns('driver_vehicles');
@@ -109,6 +132,7 @@ class DriverModel extends BaseModel
 
     public function findById($id)
     {
+        $this->autoApproveMaturePendingDrivers($id);
         $this->checkAndResetDailyWallet($id);
         $wCols = $this->getExistingColumns('driver_wallets');
         $vCols = $this->getExistingColumns('driver_vehicles');
@@ -138,6 +162,7 @@ class DriverModel extends BaseModel
         if (empty($email)) {
             return null;
         }
+        $this->autoApproveMaturePendingDrivers();
         $sql = "SELECT * FROM `drivers` WHERE email = ? AND (approval_status IS NULL OR approval_status != 'DELETED') AND email NOT LIKE 'del_%' LIMIT 1";
         return $this->fetchOne($sql, array($email));
     }
@@ -1448,19 +1473,8 @@ class DriverModel extends BaseModel
                     $this->execute($pSql, $pParams);
                 }
 
-                // 4. Calculate driver earnings
-                $driver = $this->findById($driverId);
-                $commissionPct = 10.00;
-                try {
-                    $settingRow = $this->fetchOne("SELECT v FROM system_settings WHERE k = 'platform_commission'");
-                    if ($settingRow && is_numeric($settingRow['v'])) {
-                        $commissionPct = (float)$settingRow['v'];
-                    } elseif (isset($driver['commission_percent']) && (float)$driver['commission_percent'] > 0) {
-                        $commissionPct = (float)$driver['commission_percent'];
-                    }
-                } catch (\Exception $e) {
-                    $commissionPct = isset($driver['commission_percent']) ? (float)$driver['commission_percent'] : 10.00;
-                }
+                // 4. Calculate driver earnings using active platform commission
+                $commissionPct = $this->getEffectiveCommissionPercent($driverId);
                 $commissionAmount = round($totalFare * ($commissionPct / 100.0), 2);
                 $driverEarnings = round($totalFare - $commissionAmount, 2);
 
@@ -1546,14 +1560,15 @@ class DriverModel extends BaseModel
                 }
 
                 return array(
-                    'booking_id'      => $bookingId,
-                    'status'          => 'COMPLETED',
-                    'total_fare'      => $totalFare,
-                    'driver_earnings' => $driverEarnings,
-                    'commission'      => $commissionAmount,
-                    'payment_id'      => $paymentId,
-                    'payment_method'  => $payMethod,
-                    'completed_at'    => date('Y-m-d H:i:s')
+                    'booking_id'         => $bookingId,
+                    'status'             => 'COMPLETED',
+                    'total_fare'         => $totalFare,
+                    'driver_earnings'    => $driverEarnings,
+                    'commission'         => $commissionAmount,
+                    'commission_percent' => $commissionPct,
+                    'payment_id'         => $paymentId,
+                    'payment_method'     => $payMethod,
+                    'completed_at'       => date('Y-m-d H:i:s')
                 );
             } catch (Exception $e) {
                 $this->rollBack();
@@ -1570,9 +1585,15 @@ class DriverModel extends BaseModel
 
     public function getRideHistory($driverId, $limit = 20, $offset = 0)
     {
+        $commissionPct = $this->getEffectiveCommissionPercent($driverId);
+        $driverFactor = max(0.0, 1.0 - ($commissionPct / 100.0));
+        $commFactor = max(0.0, $commissionPct / 100.0);
+
         $sql = "SELECT b.id, b.ride_type, b.vehicle_category, b.status,
                        b.distance_km, b.duration_min, b.total_fare,
-                       ROUND(b.total_fare * 0.85, 2) AS driver_earnings,
+                       ROUND(b.total_fare * {$driverFactor}, 2) AS driver_earnings,
+                       ROUND(b.total_fare * {$commFactor}, 2) AS commission,
+                       {$commissionPct} AS commission_percent,
                        b.payment_method, b.payment_status, b.rating, b.created_at, b.completed_at,
                        c.name AS customer_name, c.phone AS customer_phone
                 FROM `bookings` b
@@ -1599,7 +1620,7 @@ class DriverModel extends BaseModel
             foreach ($locs as $loc) {
                 if ($loc['type'] === 'PICKUP' && $pickup === null) {
                     $pickup = $loc;
-                } elseif ($loc['type'] === 'DROP') {
+                } elseif ($loc['type'] === 'DROP' || $loc['type'] === 'DROPOFF') {
                     $drop = $loc;
                 }
             }
@@ -1627,7 +1648,7 @@ class DriverModel extends BaseModel
             $walletId = Security::generateUUID();
             $this->execute("INSERT INTO `driver_wallets` (`id`, `driver_id`, `balance`, `today_earnings`, `today_trips`, `total_commission_paid`, `is_active`)
                             VALUES (?, ?, 0.00, 0.00, 0, 0.00, 1)", array($walletId, $driverId));
-            return array(
+            $wallet = array(
                 'id'                    => $walletId,
                 'balance'               => '0.00',
                 'today_earnings'        => '0.00',
@@ -1638,6 +1659,34 @@ class DriverModel extends BaseModel
             );
         }
 
+        $activePct = $this->getEffectiveCommissionPercent($driverId);
+        $todayEarnings = (float)$wallet['today_earnings'];
+        $todayGross = 0.0;
+        $todayCommission = 0.0;
+
+        try {
+            $todayRow = $this->fetchOne(
+                "SELECT COALESCE(SUM(`total_fare`), 0) AS today_gross
+                 FROM `bookings`
+                 WHERE `driver_id` = ? AND `status` = 'COMPLETED'
+                   AND DATE(COALESCE(`completed_at`, `updated_at`, `created_at`)) = CURDATE()",
+                array($driverId)
+            );
+            if ($todayRow && isset($todayRow['today_gross'])) {
+                $todayGross = (float)$todayRow['today_gross'];
+            }
+        } catch (\Exception $e) {}
+
+        if ($todayGross > 0) {
+            $todayCommission = max(0.0, round($todayGross - $todayEarnings, 2));
+        } elseif ($todayEarnings > 0 && $activePct < 100) {
+            $todayGross = round($todayEarnings / (1.0 - ($activePct / 100.0)), 2);
+            $todayCommission = max(0.0, round($todayGross - $todayEarnings, 2));
+        }
+
+        $wallet['active_commission_percent'] = $activePct;
+        $wallet['today_gross'] = $todayGross;
+        $wallet['today_commission'] = $todayCommission;
         return $wallet;
     }
 

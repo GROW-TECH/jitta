@@ -781,6 +781,36 @@ class AdminController extends BaseController
     }
 
     /**
+     * POST /api/v1/admin/change-password
+     * Changes the authenticated admin user's password.
+     */
+    public function changePassword()
+    {
+        $adminUser = AuthMiddleware::requireAdmin();
+        $adminId = isset($adminUser['sub']) ? $adminUser['sub'] : null;
+        if (empty($adminId)) {
+            Response::unauthorized('Admin session invalid');
+        }
+
+        $input = $this->getJsonInput();
+        $this->requireFields($input, array('current_password', 'new_password'));
+
+        $currentPassword = (string)$input['current_password'];
+        $newPassword = (string)$input['new_password'];
+
+        if (strlen($newPassword) < 6) {
+            Response::unprocessableEntity('New password must be at least 6 characters long');
+        }
+
+        $res = $this->adminModel->changeAdminPassword($adminId, $currentPassword, $newPassword);
+        if (isset($res['error'])) {
+            Response::badRequest($res['error']);
+        }
+
+        Response::success(array('updated' => true), 'Admin password changed successfully');
+    }
+
+    /**
      * POST /api/v1/admin/whatsapp/test
      * Sends a diagnostic WhatsApp message (text, template, or booking event replay).
      */

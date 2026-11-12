@@ -202,6 +202,7 @@ $router->post('/admin/notifications/broadcast',    array('AdminController', 'bro
 // Admin Settings
 $router->get('/admin/settings',                    array('AdminController', 'getSettings'));
 $router->put('/admin/settings',                    array('AdminController', 'saveSettings'));
+$router->post('/admin/change-password',            array('AdminController', 'changePassword'));
 $router->post('/admin/whatsapp/test',              array('AdminController', 'testWhatsApp'));
 
 return $router;

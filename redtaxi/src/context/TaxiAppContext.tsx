@@ -305,42 +305,8 @@ export const TaxiAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
         await refreshAdminData();
         return { success: true, message: 'Admin login successful' };
       }
-      const isDefaultCreds =
-        (email.trim().toLowerCase() === 'admin@jittadrives.com' || email.trim().toLowerCase() === 'admin@redtaxi.in') &&
-        password === 'admin123';
-
-      if (isDefaultCreds) {
-        const dummyToken = 'demo_admin_token_' + Date.now();
-        tokenStorage.setAdminToken(dummyToken);
-        setAdminToken(dummyToken);
-        setAdminProfile({
-          id: 'ADMIN-001',
-          name: 'System Administrator',
-          email: 'admin@jittadrives.com',
-          role: 'SUPER_ADMIN',
-        });
-        await refreshAdminData();
-        return { success: true, message: 'Admin logged in successfully' };
-      }
       return { success: false, message: res.message || 'Invalid credentials' };
     } catch (err: any) {
-      const isDefaultCreds =
-        (email.trim().toLowerCase() === 'admin@jittadrives.com' || email.trim().toLowerCase() === 'admin@redtaxi.in') &&
-        password === 'admin123';
-
-      if (isDefaultCreds) {
-        const dummyToken = 'demo_admin_token_' + Date.now();
-        tokenStorage.setAdminToken(dummyToken);
-        setAdminToken(dummyToken);
-        setAdminProfile({
-          id: 'ADMIN-001',
-          name: 'System Administrator',
-          email: 'admin@jittadrives.com',
-          role: 'SUPER_ADMIN',
-        });
-        await refreshAdminData();
-        return { success: true, message: 'Admin logged in successfully' };
-      }
       return { success: false, message: err?.message || 'Admin login request failed' };
     }
   };
