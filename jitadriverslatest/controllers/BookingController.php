@@ -1021,6 +1021,7 @@ class BookingController extends BaseController
         require_once dirname(__DIR__) . '/models/DriverModel.php';
         $driverModel = new DriverModel();
         $driverId = !empty($booking['driver_id']) ? $booking['driver_id'] : null;
+        $whatsappCompletedNotified = false;
 
         if ($driverId) {
             if (in_array($booking['status'], array('ASSIGNED', 'EN_ROUTE', 'ARRIVED'))) {
@@ -1033,12 +1034,19 @@ class BookingController extends BaseController
                 $updComp->execute(array($bookingId));
                 $stmt->execute(array($bookingId));
                 $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            } else {
+                $whatsappCompletedNotified = true;
             }
         } else {
             $updComp = $pdo->prepare("UPDATE `bookings` SET `status` = 'COMPLETED', `payment_status` = 'PAID', `completed_at` = COALESCE(`completed_at`, NOW()), `updated_at` = NOW() WHERE `id` = ?");
             $updComp->execute(array($bookingId));
             $stmt->execute(array($bookingId));
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        }
+
+        if (!$whatsappCompletedNotified) {
+            require_once dirname(__DIR__) . '/services/WhatsAppService.php';
+            WhatsAppService::notifyBookingEvent($bookingId, 'COMPLETED');
         }
 
         Response::success($result, 'Booking completed successfully');

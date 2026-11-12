@@ -3,7 +3,7 @@ let mapsPromise: Promise<boolean> | null = null;
 
 export const GOOGLE_MAPS_API_KEY =
   (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string) ||
-  'AIzaSyAAWIhBoOW_zfNpovZWlMY5eadSoNRl1PU';
+  'AIzaSyBiNSISqEPd8DltbPJWqdtX_PPkKwMwN5Y';
 
 // Immediate global auth failure handler
 if (typeof window !== 'undefined') {

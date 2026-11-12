@@ -11,6 +11,7 @@ require_once __DIR__ . '/BaseController.php';
 require_once dirname(__DIR__) . '/models/AdminModel.php';
 require_once dirname(__DIR__) . '/middleware/AuthMiddleware.php';
 require_once dirname(__DIR__) . '/utils/Response.php';
+require_once dirname(__DIR__) . '/services/WhatsAppService.php';
 
 class AdminController extends BaseController
 {
@@ -313,6 +314,8 @@ class AdminController extends BaseController
             Response::badRequest($result['error']);
         }
 
+        WhatsAppService::notifyBookingEvent($id, 'ACCEPTED');
+
         Response::success($result['booking'], "Driver assigned successfully to booking #" . substr($id, 0, 8));
     }
 
@@ -338,6 +341,18 @@ class AdminController extends BaseController
 
         if (!$updated) {
             Response::badRequest('Failed to update booking status. Booking ID not found.');
+        }
+
+        $waEventMap = array(
+            'ASSIGNED'    => 'ACCEPTED',
+            'EN_ROUTE'    => 'ACCEPTED',
+            'ARRIVED'     => 'ARRIVED',
+            'IN_PROGRESS' => 'STARTED',
+            'COMPLETED'   => 'COMPLETED',
+            'CANCELLED'   => 'CANCELLED'
+        );
+        if (isset($waEventMap[$status])) {
+            WhatsAppService::notifyBookingEvent($id, $waEventMap[$status]);
         }
 
         Response::success(array('id' => $id, 'status' => $status), "Booking status updated to {$status}");
@@ -763,5 +778,43 @@ class AdminController extends BaseController
         }
         $this->adminModel->saveSystemSettings($input);
         Response::success(array(), 'Settings saved successfully');
+    }
+
+    /**
+     * POST /api/v1/admin/whatsapp/test
+     * Sends a diagnostic WhatsApp message (text, template, or booking event replay).
+     */
+    public function testWhatsApp()
+    {
+        AuthMiddleware::requireAdmin();
+        $input = $this->getJsonInput();
+
+        if (!empty($input['booking_id'])) {
+            $event = !empty($input['event']) ? strtoupper(trim($input['event'])) : 'COMPLETED';
+            $res = WhatsAppService::notifyBookingEvent(trim($input['booking_id']), $event);
+            if (!empty($res['success'])) {
+                Response::success($res, 'Booking WhatsApp alert sent successfully');
+            }
+            Response::badRequest(isset($res['error']) ? $res['error'] : 'WhatsApp delivery failed', $res);
+        }
+
+        $this->requireFields($input, array('to'));
+        $to = trim($input['to']);
+        $mode = !empty($input['mode']) ? strtolower(trim($input['mode'])) : 'text';
+
+        if ($mode === 'template') {
+            $tpl  = !empty($input['template']) ? trim($input['template']) : 'hello_world';
+            $lang = !empty($input['language']) ? trim($input['language']) : 'en_US';
+            $params = (!empty($input['params']) && is_array($input['params'])) ? $input['params'] : array();
+            $res = WhatsAppService::sendTemplate($to, $tpl, $lang, $params);
+        } else {
+            $msg = !empty($input['message']) ? trim($input['message']) : 'Hello from Jitta Drives! WhatsApp ride notification test is working.';
+            $res = WhatsAppService::sendText($to, $msg);
+        }
+
+        if (!empty($res['success'])) {
+            Response::success($res, 'WhatsApp test message dispatched successfully');
+        }
+        Response::badRequest(isset($res['error']) ? $res['error'] : 'WhatsApp delivery failed', $res);
     }
 }

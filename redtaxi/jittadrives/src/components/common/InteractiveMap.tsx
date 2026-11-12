@@ -10,11 +10,128 @@ import { detectLiveDynamicLocation } from '../../services/locationService';
 // Global route geometry cache so identical routes never flicker or re-fetch across renders
 const globalRoadGeometryCache = new Map<string, [number, number][]>();
 
+/** Calculate compass bearing (0-359 degrees) between two GPS points when moved > ~5m */
+function computeBearing(
+  prevLat: number,
+  prevLng: number,
+  nextLat: number,
+  nextLng: number,
+  fallback: number
+): number {
+  if (prevLat === 0 || (Math.abs(nextLat - prevLat) <= 0.00005 && Math.abs(nextLng - prevLng) <= 0.00005)) {
+    return fallback;
+  }
+  const y = Math.sin((nextLng - prevLng) * Math.PI / 180) * Math.cos(nextLat * Math.PI / 180);
+  const x =
+    Math.cos(prevLat * Math.PI / 180) * Math.sin(nextLat * Math.PI / 180) -
+    Math.sin(prevLat * Math.PI / 180) * Math.cos(nextLat * Math.PI / 180) * Math.cos((nextLng - prevLng) * Math.PI / 180);
+  return Math.round((Math.atan2(y, x) * 180 / Math.PI + 360) % 360);
+}
+
+/** Haversine distance in meters between two GPS points */
+function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371e3;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/** Shared OSRM road route fetcher with global cache and straight-line fallback */
+async function fetchOsrmRoadRoute(waypoints: [number, number][]): Promise<[number, number][]> {
+  if (waypoints.length < 2) return waypoints;
+  const cacheKey = waypoints.map(([lat, lng]) => `${lat.toFixed(4)},${lng.toFixed(4)}`).join('->');
+  if (globalRoadGeometryCache.has(cacheKey)) {
+    return globalRoadGeometryCache.get(cacheKey)!;
+  }
+
+  const coordsStr = waypoints.map(([lat, lng]) => `${lng},${lat}`).join(';');
+  try {
+    const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`);
+    const data = res.ok ? await res.json() : null;
+    if (data?.routes?.[0]?.geometry?.coordinates?.length > 1) {
+      const roadCoords = data.routes[0].geometry.coordinates.map(
+        ([lng, lat]: [number, number]) => [lat, lng] as [number, number]
+      );
+      globalRoadGeometryCache.set(cacheKey, roadCoords);
+      return roadCoords;
+    }
+  } catch {
+    // Fallback cleanly to waypoints
+  }
+  return waypoints;
+}
+
+/** Resolve vehicle marker visual style from ride type / vehicle category */
+export function resolveDriverMarkerVariant(categoryOrRideType?: string | null): 'BIKE' | 'LOGO' {
+  const norm = String(categoryOrRideType || '').toUpperCase();
+  if (norm.includes('TWO_WHEELER') || norm.includes('BIKE') || norm.includes('SCOOTER')) {
+    return 'BIKE';
+  }
+  return 'LOGO';
+}
+
+/** Shared pulse-ring + Captain marker HTML (Bike rider SVG or Jitta round logo badge) */
+function createRapidoVehicleHtml(rot: number, variant: 'LOGO' | 'BIKE' = 'LOGO'): string {
+  if (variant === 'BIKE') {
+    return `
+      <div style="position:relative; width:48px; height:48px; display:flex; align-items:center; justify-content:center; pointer-events:none;">
+        <div style="position:absolute; width:44px; height:44px; border-radius:50%; background:rgba(232,93,4,0.22); animation:ping 1.6s cubic-bezier(0,0,0.2,1) infinite;"></div>
+        <div data-role="vehicle-rot" style="transform: rotate(${rot}deg); transition: transform 0.6s cubic-bezier(0.25, 1, 0.5, 1); width:40px; height:40px; display:flex; align-items:center; justify-content:center; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.35));">
+          <svg width="38" height="38" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- Handlebar -->
+            <rect x="13" y="13" width="22" height="3.5" rx="1.75" fill="#1E293B" stroke="#FFFFFF" stroke-width="1.2"/>
+            <!-- Bike Tire & Mudguard -->
+            <rect x="21.5" y="5" width="5" height="9" rx="2.5" fill="#0F172A" stroke="#FFFFFF" stroke-width="1.2"/>
+            <rect x="21.5" y="34" width="5" height="9" rx="2.5" fill="#0F172A" stroke="#FFFFFF" stroke-width="1.2"/>
+            <!-- Front Headlight Beam -->
+            <circle cx="24" cy="7.5" r="2" fill="#FDE047"/>
+            <!-- Scooter / Bike Body -->
+            <rect x="18" y="12" width="12" height="24" rx="6" fill="#E85D04" stroke="#FFFFFF" stroke-width="2"/>
+            <!-- Rider Helmet (Top View) -->
+            <circle cx="24" cy="23" r="6.2" fill="#1E293B" stroke="#FFFFFF" stroke-width="2"/>
+            <path d="M19.5 19.5C21 18 27 18 28.5 19.5" stroke="#38BDF8" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div style="position:relative; width:48px; height:48px; display:flex; align-items:center; justify-content:center; pointer-events:none;">
+      <div style="position:absolute; width:46px; height:46px; border-radius:50%; background:rgba(232,93,4,0.22); animation:ping 1.6s cubic-bezier(0,0,0.2,1) infinite;"></div>
+      <div data-role="vehicle-rot" style="position:relative; transform: rotate(${rot}deg); transition: transform 0.6s cubic-bezier(0.25, 1, 0.5, 1); width:40px; height:40px; display:flex; align-items:center; justify-content:center;">
+        <div style="position:absolute; top:-4px; width:0; height:0; border-left:5px solid transparent; border-right:5px solid transparent; border-bottom:7px solid #E85D04; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));"></div>
+        <div data-role="logo-upright" style="width:34px; height:34px; border-radius:50%; background:#FFFFFF; border:2.5px solid #E85D04; box-shadow:0 3px 10px rgba(0,0,0,0.28); display:flex; align-items:center; justify-content:center; overflow:hidden; transform: rotate(${-rot}deg); transition: transform 0.6s cubic-bezier(0.25, 1, 0.5, 1);">
+          <img src="/logo.png" alt="Jitta" style="width:24px; height:24px; object-fit:contain; border-radius:50%;" onerror="this.style.display='none'; this.parentElement.innerHTML='<span style=&quot;font-weight:900;font-size:13px;color:#E85D04;&quot;>J</span>';" />
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/** Sync vehicle cone rotation while keeping the central Jitta logo badge upright */
+function applyVehicleRotation(rootEl: ParentNode | null | undefined, rot: number) {
+  if (!rootEl) return;
+  const rotEl = rootEl.querySelector('[data-role="vehicle-rot"]') as HTMLElement | null;
+  if (rotEl) {
+    rotEl.style.transform = `rotate(${rot}deg)`;
+  }
+  const uprightEl = rootEl.querySelector('[data-role="logo-upright"]') as HTMLElement | null;
+  if (uprightEl) {
+    uprightEl.style.transform = `rotate(${-rot}deg)`;
+  }
+}
+
 interface InteractiveMapProps {
   pickup?: LocationPoint | null;
   drop?: LocationPoint | null;
   stops?: LocationPoint[];
   driverLocation?: { lat: number; lng: number };
+  driverRouteMode?: 'NONE' | 'TO_PICKUP' | 'TO_DROP';
+  driverMarkerVariant?: 'LOGO' | 'BIKE';
   showNearbyDrivers?: boolean;
   interactivePin?: boolean;
   onPinMove?: (lat: number, lng: number) => void;
@@ -42,6 +159,8 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   drop,
   stops = [],
   driverLocation,
+  driverRouteMode = 'NONE',
+  driverMarkerVariant = 'LOGO',
   showNearbyDrivers = true,
   interactivePin = false,
   onPinMove,
@@ -62,13 +181,18 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const leafletMapInstanceRef = useRef<L.Map | null>(null);
 
   const googlePolylineRef = useRef<any>(null);
+  const googleLiveRoutePolylineRef = useRef<any>(null);
   const googleMarkersRef = useRef<any[]>([]);
+  const googleDriverLiveMarkerRef = useRef<any>(null);
+  const googleDriverVariantRef = useRef<'LOGO' | 'BIKE'>(driverMarkerVariant);
   const googleRouteKeyRef = useRef<string>('');
 
   const leafletMarkersRef = useRef<L.Marker[]>([]);
   const leafletPolylineRef = useRef<L.Polyline | null>(null);
+  const leafletLiveRoutePolylineRef = useRef<L.Polyline | null>(null);
   const leafletCarMarkerRef = useRef<L.Marker | null>(null);
   const leafletDriverLiveMarkerRef = useRef<L.Marker | null>(null);
+  const leafletDriverVariantRef = useRef<'LOGO' | 'BIKE'>(driverMarkerVariant);
   const leafletRouteKeyRef = useRef<string>('');
   const leafletRoadCoordsRef = useRef<[number, number][]>([]);
 
@@ -798,91 +922,255 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     }
   }, [activeEngine, progress, pLat, pLng, dLat, dLng]);
 
-  // Bearing reference for smooth Rapido-style vehicle rotation
+  // Bearing reference & live route state for smooth Rapido-style tracking
   const prevLiveCoordRef = useRef<{ lat: number; lng: number; bearing: number }>({ lat: 0, lng: 0, bearing: 0 });
+  const liveRouteLastFetchRef = useRef<{ key: string; lat: number; lng: number; ts: number }>({ key: '', lat: 0, lng: 0, ts: 0 });
+  const liveRouteFittedKeyRef = useRef<string>('');
+  const liveRouteSeqRef = useRef<number>(0);
+  const activeLiveRouteKeyRef = useRef<string>('');
 
-  // Live Driver GPS Marker on Leaflet Map (Rapido-Style Smooth Animated Vehicle)
+  const clearLiveRoutePolylines = () => {
+    if (leafletLiveRoutePolylineRef.current) {
+      try {
+        leafletLiveRoutePolylineRef.current.remove();
+      } catch {}
+      leafletLiveRoutePolylineRef.current = null;
+    }
+    if (googleLiveRoutePolylineRef.current) {
+      try {
+        googleLiveRoutePolylineRef.current.setMap(null);
+      } catch {}
+      googleLiveRoutePolylineRef.current = null;
+    }
+    liveRouteLastFetchRef.current = { key: '', lat: 0, lng: 0, ts: 0 };
+  };
+
+  // Cleanup persistent live driver markers & routes when switching engines or unmounting
   useEffect(() => {
-    if (activeEngine !== 'LEAFLET' || !leafletMapInstanceRef.current) return;
-    const lMap = leafletMapInstanceRef.current;
+    return () => {
+      activeLiveRouteKeyRef.current = '';
+      clearLiveRoutePolylines();
+      if (leafletDriverLiveMarkerRef.current) {
+        try {
+          leafletDriverLiveMarkerRef.current.remove();
+        } catch {}
+        leafletDriverLiveMarkerRef.current = null;
+      }
+      if (googleDriverLiveMarkerRef.current) {
+        try {
+          googleDriverLiveMarkerRef.current.setMap(null);
+        } catch {}
+        googleDriverLiveMarkerRef.current = null;
+      }
+    };
+  }, [activeEngine]);
 
+  // Live Driver GPS Marker (supports both Google Maps and Leaflet)
+  useEffect(() => {
     const dLiveLat = driverLocation?.lat != null && isFinite(Number(driverLocation.lat)) ? Number(driverLocation.lat) : null;
     const dLiveLng = driverLocation?.lng != null && isFinite(Number(driverLocation.lng)) ? Number(driverLocation.lng) : null;
 
-    if (dLiveLat !== null && dLiveLng !== null) {
-      // Calculate bearing angle between previous and current coordinate
-      let bearing = prevLiveCoordRef.current.bearing;
-      const prev = prevLiveCoordRef.current;
-      if (prev.lat !== 0 && (Math.abs(dLiveLat - prev.lat) > 0.00005 || Math.abs(dLiveLng - prev.lng) > 0.00005)) {
-        const y = Math.sin((dLiveLng - prev.lng) * Math.PI / 180) * Math.cos(dLiveLat * Math.PI / 180);
-        const x = Math.cos(prev.lat * Math.PI / 180) * Math.sin(dLiveLat * Math.PI / 180) -
-                  Math.sin(prev.lat * Math.PI / 180) * Math.cos(dLiveLat * Math.PI / 180) * Math.cos((dLiveLng - prev.lng) * Math.PI / 180);
-        bearing = Math.round((Math.atan2(y, x) * 180 / Math.PI + 360) % 360);
+    if (dLiveLat === null || dLiveLng === null) {
+      if (leafletDriverLiveMarkerRef.current) {
+        try {
+          leafletDriverLiveMarkerRef.current.remove();
+        } catch {}
+        leafletDriverLiveMarkerRef.current = null;
       }
-      prevLiveCoordRef.current = { lat: dLiveLat, lng: dLiveLng, bearing };
+      if (googleDriverLiveMarkerRef.current) {
+        try {
+          googleDriverLiveMarkerRef.current.setMap(null);
+        } catch {}
+        googleDriverLiveMarkerRef.current = null;
+      }
+      return;
+    }
 
-      const createRapidoVehicleHtml = (rot: number) => `
-        <div style="position:relative; width:48px; height:48px; display:flex; align-items:center; justify-content:center;">
-          <!-- GPS Pulse Radar Ring -->
-          <div style="position:absolute; width:46px; height:46px; border-radius:50%; background:rgba(232,93,4,0.22); animation:ping 1.6s cubic-bezier(0,0,0.2,1) infinite;"></div>
-          <!-- Vehicle Directional Icon -->
-          <div style="transform: rotate(${rot}deg); transition: transform 0.6s cubic-bezier(0.25, 1, 0.5, 1); width:38px; height:38px; display:flex; align-items:center; justify-content:center; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.35));">
-            <svg width="36" height="36" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <!-- Car Body -->
-              <rect x="12" y="6" width="24" height="36" rx="8" fill="#1E293B" stroke="#FFFFFF" stroke-width="2.5"/>
-              <!-- Front Windshield -->
-              <path d="M15 15C15 13 17 11 20 11H28C31 11 33 13 33 15V17H15V15Z" fill="#38BDF8"/>
-              <!-- Rear Windshield -->
-              <path d="M16 33C16 31 18 30 20 30H28C30 30 32 31 32 33V34H16V33Z" fill="#38BDF8"/>
-              <!-- Jitta Taxi Roof Light (Yellow/Orange) -->
-              <rect x="20" y="21" width="8" height="6" rx="2" fill="#F59E0B" stroke="#D97706" stroke-width="1"/>
-              <!-- Headlights Beam (Glow) -->
-              <circle cx="16" cy="7" r="2" fill="#FDE047"/>
-              <circle cx="32" cy="7" r="2" fill="#FDE047"/>
-              <!-- Taillights -->
-              <circle cx="16" cy="41" r="1.8" fill="#EF4444"/>
-              <circle cx="32" cy="41" r="1.8" fill="#EF4444"/>
-            </svg>
-          </div>
-        </div>
-      `;
+    const prev = prevLiveCoordRef.current;
+    const bearing = computeBearing(prev.lat, prev.lng, dLiveLat, dLiveLng, prev.bearing);
+    prevLiveCoordRef.current = { lat: dLiveLat, lng: dLiveLng, bearing };
+
+    if (activeEngine === 'LEAFLET' && leafletMapInstanceRef.current) {
+      const lMap = leafletMapInstanceRef.current;
+      if (leafletDriverLiveMarkerRef.current && leafletDriverVariantRef.current !== driverMarkerVariant) {
+        try {
+          leafletDriverLiveMarkerRef.current.remove();
+        } catch {}
+        leafletDriverLiveMarkerRef.current = null;
+      }
 
       if (leafletDriverLiveMarkerRef.current) {
         leafletDriverLiveMarkerRef.current.setLatLng([dLiveLat, dLiveLng]);
-        const el = leafletDriverLiveMarkerRef.current.getElement();
-        if (el) {
-          const rotContainer = el.querySelector('div > div:nth-child(2)') as HTMLElement;
-          if (rotContainer) {
-            rotContainer.style.transform = `rotate(${bearing}deg)`;
-          }
-        }
+        applyVehicleRotation(leafletDriverLiveMarkerRef.current.getElement(), bearing);
       } else {
+        leafletDriverVariantRef.current = driverMarkerVariant;
         const driverIcon = L.divIcon({
           className: 'rapido-live-driver-marker',
-          html: createRapidoVehicleHtml(bearing),
+          html: createRapidoVehicleHtml(bearing, driverMarkerVariant),
           iconSize: [48, 48],
           iconAnchor: [24, 24],
         });
         leafletDriverLiveMarkerRef.current = L.marker([dLiveLat, dLiveLng], { icon: driverIcon, zIndexOffset: 1000 }).addTo(lMap);
       }
-    } else {
-      if (leafletDriverLiveMarkerRef.current) {
-        try {
-          leafletDriverLiveMarkerRef.current.remove();
-        } catch {}
-        leafletDriverLiveMarkerRef.current = null;
-      }
+      return;
     }
 
-    return () => {
-      if (leafletDriverLiveMarkerRef.current) {
+    if (activeEngine === 'GOOGLE' && googleMapInstanceRef.current) {
+      const g = (window as any).google?.maps;
+      const gMap = googleMapInstanceRef.current;
+      if (!g || !g.OverlayView) return;
+
+      if (googleDriverLiveMarkerRef.current && googleDriverVariantRef.current !== driverMarkerVariant) {
         try {
-          leafletDriverLiveMarkerRef.current.remove();
+          googleDriverLiveMarkerRef.current.setMap(null);
         } catch {}
-        leafletDriverLiveMarkerRef.current = null;
+        googleDriverLiveMarkerRef.current = null;
       }
-    };
-  }, [activeEngine, driverLocation?.lat, driverLocation?.lng]);
+
+      if (googleDriverLiveMarkerRef.current) {
+        googleDriverLiveMarkerRef.current.updatePosition(dLiveLat, dLiveLng, bearing);
+      } else {
+        googleDriverVariantRef.current = driverMarkerVariant;
+        const variantAtCreate = driverMarkerVariant;
+        class GoogleLiveDriverOverlay extends g.OverlayView {
+          private pos = new g.LatLng(dLiveLat, dLiveLng);
+          private el: HTMLElement;
+          constructor() {
+            super();
+            this.el = document.createElement('div');
+            this.el.style.position = 'absolute';
+            this.el.style.width = '48px';
+            this.el.style.height = '48px';
+            this.el.style.zIndex = '1100';
+            this.el.style.pointerEvents = 'none';
+            this.el.innerHTML = createRapidoVehicleHtml(bearing, variantAtCreate);
+          }
+          onAdd() {
+            const panes = this.getPanes();
+            if (panes?.overlayMouseTarget) {
+              panes.overlayMouseTarget.appendChild(this.el);
+            }
+          }
+          draw() {
+            const projection = this.getProjection();
+            if (!projection || !this.el) return;
+            const point = projection.fromLatLngToDivPixel(this.pos);
+            if (point) {
+              this.el.style.left = `${point.x - 24}px`;
+              this.el.style.top = `${point.y - 24}px`;
+            }
+          }
+          updatePosition(lat: number, lng: number, rot: number) {
+            this.pos = new g.LatLng(lat, lng);
+            applyVehicleRotation(this.el, rot);
+            this.draw();
+          }
+          onRemove() {
+            if (this.el && this.el.parentNode) {
+              this.el.parentNode.removeChild(this.el);
+            }
+          }
+        }
+        const liveOverlay = new GoogleLiveDriverOverlay();
+        liveOverlay.setMap(gMap);
+        googleDriverLiveMarkerRef.current = liveOverlay;
+      }
+    }
+  }, [activeEngine, driverLocation?.lat, driverLocation?.lng, driverMarkerVariant]);
+
+  // Rapido-Style Live Road Route Line (Driver -> Pickup or Driver -> Drop)
+  useEffect(() => {
+    const dLiveLat = driverLocation?.lat != null && isFinite(Number(driverLocation.lat)) ? Number(driverLocation.lat) : null;
+    const dLiveLng = driverLocation?.lng != null && isFinite(Number(driverLocation.lng)) ? Number(driverLocation.lng) : null;
+    const tLat = driverRouteMode === 'TO_PICKUP' ? pLat : driverRouteMode === 'TO_DROP' ? dLat : null;
+    const tLng = driverRouteMode === 'TO_PICKUP' ? pLng : driverRouteMode === 'TO_DROP' ? dLng : null;
+
+    if (driverRouteMode === 'NONE' || dLiveLat === null || dLiveLng === null || tLat === null || tLng === null) {
+      activeLiveRouteKeyRef.current = '';
+      clearLiveRoutePolylines();
+      return;
+    }
+
+    const modeTargetKey = `${activeEngine}|${driverRouteMode}|${tLat.toFixed(4)},${tLng.toFixed(4)}`;
+    activeLiveRouteKeyRef.current = modeTargetKey;
+
+    const prev = liveRouteLastFetchRef.current;
+    if (prev.key && prev.key !== modeTargetKey) {
+      clearLiveRoutePolylines();
+    }
+
+    const movedMeters = prev.key === modeTargetKey ? haversineMeters(prev.lat, prev.lng, dLiveLat, dLiveLng) : Infinity;
+    const elapsed = Date.now() - prev.ts;
+    const shouldFetch = prev.key !== modeTargetKey || (movedMeters >= 60 && elapsed >= 3500) || movedMeters >= 250;
+    if (!shouldFetch) return;
+
+    liveRouteLastFetchRef.current = { key: modeTargetKey, lat: dLiveLat, lng: dLiveLng, ts: Date.now() };
+    const seq = ++liveRouteSeqRef.current;
+
+    fetchOsrmRoadRoute([[dLiveLat, dLiveLng], [tLat, tLng]]).then((roadCoords) => {
+      if (liveRouteSeqRef.current !== seq || activeLiveRouteKeyRef.current !== modeTargetKey || roadCoords.length < 2) {
+        return;
+      }
+
+      const shouldFit = liveRouteFittedKeyRef.current !== modeTargetKey;
+      if (shouldFit) {
+        liveRouteFittedKeyRef.current = modeTargetKey;
+      }
+
+      if (activeEngine === 'LEAFLET' && leafletMapInstanceRef.current) {
+        const lMap = leafletMapInstanceRef.current;
+        if (leafletLiveRoutePolylineRef.current) {
+          leafletLiveRoutePolylineRef.current.setLatLngs(roadCoords);
+        } else {
+          leafletLiveRoutePolylineRef.current = L.polyline(roadCoords, {
+            color: '#E85D04',
+            weight: 5,
+            opacity: 0.95,
+            lineCap: 'round',
+            lineJoin: 'round',
+          }).addTo(lMap);
+        }
+        leafletLiveRoutePolylineRef.current.bringToFront();
+
+        if (shouldFit) {
+          const fitPoints: [number, number][] = [...roadCoords];
+          if (pLat !== null && pLng !== null) fitPoints.push([pLat, pLng]);
+          if (dLat !== null && dLng !== null) fitPoints.push([dLat, dLng]);
+          lMap.fitBounds(L.latLngBounds(fitPoints), { padding: [55, 55], maxZoom: 16 });
+        }
+        return;
+      }
+
+      if (activeEngine === 'GOOGLE' && googleMapInstanceRef.current) {
+        const g = (window as any).google?.maps;
+        const gMap = googleMapInstanceRef.current;
+        if (!g || !gMap) return;
+
+        const path = roadCoords.map(([lat, lng]) => ({ lat, lng }));
+        if (googleLiveRoutePolylineRef.current) {
+          googleLiveRoutePolylineRef.current.setPath(path);
+          googleLiveRoutePolylineRef.current.setMap(gMap);
+        } else {
+          googleLiveRoutePolylineRef.current = new g.Polyline({
+            map: gMap,
+            path,
+            strokeColor: '#E85D04',
+            strokeOpacity: 0.95,
+            strokeWeight: 5,
+            zIndex: 50,
+          });
+        }
+
+        if (shouldFit) {
+          const bounds = new g.LatLngBounds();
+          path.forEach((pt) => bounds.extend(pt));
+          if (pLat !== null && pLng !== null) bounds.extend({ lat: pLat, lng: pLng });
+          if (dLat !== null && dLng !== null) bounds.extend({ lat: dLat, lng: dLng });
+          gMap.fitBounds(bounds, 60);
+        }
+      }
+    });
+  }, [activeEngine, driverRouteMode, driverLocation?.lat, driverLocation?.lng, pLat, pLng, dLat, dLng]);
 
   // Map Controls
   const handleZoom = (delta: number) => {

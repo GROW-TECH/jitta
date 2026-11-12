@@ -17,7 +17,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useTaxiApp, sanitizeBrandText } from '../../context/TaxiAppContext';
-import { InteractiveMap } from '../common/InteractiveMap';
+import { InteractiveMap, resolveDriverMarkerVariant } from '../common/InteractiveMap';
 import { validateVehicleNumber } from '../../utils/vehicleRegValidator';
 import { VoiceMessageBubble } from '../common/VoiceMessageBubble';
 
@@ -44,26 +44,56 @@ export const CustomerActiveTripView: React.FC = () => {
   const [searchTimer, setSearchTimer] = useState<number>(60);
   const [isRetrying, setIsRetrying] = useState<boolean>(false);
 
-  // Dynamic live ETA from driver's GPS to pickup location
-  const liveDriverEta = useMemo(() => {
-    if (activeBooking?.driverLocation?.lat && activeBooking?.pickup?.lat) {
-      const lat1 = Number(activeBooking.driverLocation.lat);
-      const lon1 = Number(activeBooking.driverLocation.lng);
-      const lat2 = Number(activeBooking.pickup.lat);
-      const lon2 = Number(activeBooking.pickup.lng);
-      if (isFinite(lat1) && isFinite(lon1) && isFinite(lat2) && isFinite(lon2)) {
-        const dLat = (lat2 - lat1) * Math.PI / 180;
-        const dLon = (lon2 - lon1) * Math.PI / 180;
-        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-          Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        const distKm = 6371 * c;
-        return Math.max(1, Math.ceil((distKm / 25) * 60));
-      }
+  // Shared live GPS ETA estimator (~25 km/h urban speed)
+  const computeEtaMinutes = (
+    from: { lat?: any; lng?: any } | null | undefined,
+    to: { lat?: any; lng?: any } | null | undefined,
+    fallback: number
+  ): number => {
+    const lat1 = Number(from?.lat);
+    const lon1 = Number(from?.lng);
+    const lat2 = Number(to?.lat);
+    const lon2 = Number(to?.lng);
+    if (from?.lat != null && to?.lat != null && isFinite(lat1) && isFinite(lon1) && isFinite(lat2) && isFinite(lon2)) {
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      const distKm = 6371 * c;
+      return Math.max(1, Math.ceil((distKm / 25) * 60));
     }
-    return driverEta;
-  }, [activeBooking?.driverLocation, activeBooking?.pickup, driverEta]);
+    return fallback;
+  };
+
+  // Dynamic live ETA from driver's GPS to pickup location
+  const liveDriverEta = useMemo(
+    () => computeEtaMinutes(activeBooking?.driverLocation, activeBooking?.pickup, driverEta),
+    [activeBooking?.driverLocation, activeBooking?.pickup, driverEta]
+  );
+
+  // Dynamic live ETA from driver's GPS to drop destination
+  const liveDropEta = useMemo(
+    () => computeEtaMinutes(activeBooking?.driverLocation, activeBooking?.drop, Number(activeBooking?.durationMin) || 24),
+    [activeBooking?.driverLocation, activeBooking?.drop, activeBooking?.durationMin]
+  );
+
+  const driverMarkerVariant = useMemo(
+    () => resolveDriverMarkerVariant(activeBooking?.vehicleCategory || activeBooking?.rideType || driverProfile?.vehicleType),
+    [activeBooking?.vehicleCategory, activeBooking?.rideType, driverProfile?.vehicleType]
+  );
+
+  const driverRouteMode = useMemo<'NONE' | 'TO_PICKUP' | 'TO_DROP'>(() => {
+    const status = String(activeBooking?.status || '').toUpperCase();
+    if (status === 'IN_PROGRESS' || status === 'STARTED' || customerScreen === 'TRIP_STARTED' || customerScreen === 'LIVE_TRIP') {
+      return 'TO_DROP';
+    }
+    if (status === 'ASSIGNED' || status === 'ACCEPTED' || status === 'EN_ROUTE' || customerScreen === 'DRIVER_ASSIGNED' || customerScreen === 'DRIVER_EN_ROUTE') {
+      return 'TO_PICKUP';
+    }
+    return 'NONE';
+  }, [activeBooking?.status, customerScreen]);
 
   // Search countdown timer (auto transitions to NO_DRIVERS_AVAILABLE at 60s)
   useEffect(() => {
@@ -422,7 +452,9 @@ export const CustomerActiveTripView: React.FC = () => {
           pickup={activeBooking?.pickup}
           drop={activeBooking?.drop}
           driverLocation={activeBooking?.driverLocation}
-          progress={simulatedProgress}
+          driverRouteMode={driverRouteMode}
+          driverMarkerVariant={driverMarkerVariant}
+          progress={activeBooking?.driverLocation?.lat ? 0 : simulatedProgress}
           height="h-full"
           forceLight={true}
         />
@@ -497,7 +529,7 @@ export const CustomerActiveTripView: React.FC = () => {
                   {activeBooking?.status === 'ARRIVED'
                     ? (language === 'ta' ? 'ஏறும் இடத்தில் காத்திருக்கிறார்' : 'Waiting at pickup')
                     : activeBooking?.status === 'IN_PROGRESS'
-                    ? (language === 'ta' ? `சேருமிடம் ${24 - Math.round((simulatedProgress / 100) * 20)} நிமிடங்களில்` : `Destination in ${24 - Math.round((simulatedProgress / 100) * 20)} min`)
+                    ? (language === 'ta' ? `சேருமிடம் ${liveDropEta} நிமிடங்களில்` : `Destination in ${liveDropEta} min`)
                     : (language === 'ta' ? `${liveDriverEta} நிமிடங்களில் வருவார்` : `Arriving in ${liveDriverEta} min`)}
                 </span>
               </div>

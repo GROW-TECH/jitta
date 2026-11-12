@@ -48,7 +48,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useTaxiApp, sanitizeBrandText } from '../../context/TaxiAppContext';
-import { InteractiveMap } from '../common/InteractiveMap';
+import { InteractiveMap, resolveDriverMarkerVariant } from '../common/InteractiveMap';
 import { DriverDashboardLayout } from './DriverDashboardLayout';
 import { VoiceMessageBubble } from '../common/VoiceMessageBubble';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
@@ -106,6 +106,14 @@ export const DriverAppView: React.FC = () => {
     confirmDriverVehicle,
     reportDriverVehicleMismatch,
   } = useTaxiApp() as any;
+
+  const activeDriverMarkerVariant = resolveDriverMarkerVariant(
+    activeBooking?.vehicleCategory ||
+      activeBooking?.rideType ||
+      driverCurrentRide?.vehicleCategory ||
+      driverCurrentRide?.rideType ||
+      driverProfile?.vehicleType
+  );
 
   const [driverChatInput, setDriverChatInput] = useState<string>('');
   const [isReportingMismatch, setIsReportingMismatch] = useState<boolean>(false);
@@ -739,13 +747,22 @@ export const DriverAppView: React.FC = () => {
   const [isLocatingDriver, setIsLocatingDriver] = useState<boolean>(false);
 
   const lastReverseGeocodeRef = useRef<{ lat: number; lng: number; time: number } | null>(null);
+  const lastGpsSyncRef = useRef<number>(0);
+  const isDriverTrackingActiveRef = useRef<boolean>(false);
+  isDriverTrackingActiveRef.current = Boolean(
+    (driverProfile?.isOnline && driverProfile?.approvalStatus === 'APPROVED') ||
+    driverCurrentRide?.id ||
+    activeBooking?.id
+  );
 
   const updateDriverLivePosition = async (latitude: number, longitude: number) => {
     setDriverCoords({ lat: latitude, lng: longitude });
 
-    // Sync driver GPS coordinates to backend immediately
+    // Sync driver GPS coordinates to backend cleanly using a live ref (avoids stale mount closure)
     const token = tokenStorage.getDriverToken();
-    if (token && driverProfile?.isOnline && driverProfile?.approvalStatus === 'APPROVED') {
+    const nowTs = Date.now();
+    if (token && isDriverTrackingActiveRef.current && nowTs - lastGpsSyncRef.current >= 1500) {
+      lastGpsSyncRef.current = nowTs;
       driverApi.updateStatus(true, latitude, longitude).catch(() => {});
     }
 
@@ -2602,6 +2619,7 @@ return (
               lng: driverCoords.lng,
             }}
             driverLocation={driverCoords}
+            driverMarkerVariant={activeDriverMarkerVariant}
             showNearbyDrivers={false}
             height="h-full"
             controlsOffsetTop={56}
@@ -3655,7 +3673,15 @@ return (
     return (
       <DriverDashboardLayout>
         <div className="h-full flex flex-col bg-[#FAFAF8] text-[#171717] relative">
-          <InteractiveMap pickup={pickupLoc || activeBooking?.pickup} showNearbyDrivers={false} height="h-full" forceLight={true} />
+          <InteractiveMap
+            pickup={pickupLoc || activeBooking?.pickup}
+            driverLocation={driverCoords}
+            driverRouteMode="TO_PICKUP"
+            driverMarkerVariant={activeDriverMarkerVariant}
+            showNearbyDrivers={false}
+            height="h-full"
+            forceLight={true}
+          />
 
           <div className="absolute bottom-2 left-2 right-2 sm:bottom-4 sm:left-4 sm:right-4 z-20 bg-white border border-[#E5E5E5] p-4 sm:p-5 rounded-3xl shadow-2xl space-y-3 sm:space-y-4">
             <div className="flex items-center justify-between border-b border-[#E5E5E5] pb-3 gap-2">
@@ -4053,7 +4079,16 @@ return (
       <DriverDashboardLayout>
         <div className="h-full flex flex-col bg-[#171717] relative overflow-hidden">
         {/* Full-screen live map */}
-        <InteractiveMap pickup={pickupLoc} drop={dropLoc} progress={simulatedProgress} height="h-full" forceLight={true} />
+        <InteractiveMap
+          pickup={pickupLoc}
+          drop={dropLoc}
+          driverLocation={driverCoords}
+          driverRouteMode="TO_DROP"
+          driverMarkerVariant={activeDriverMarkerVariant}
+          progress={driverCoords ? 0 : simulatedProgress}
+          height="h-full"
+          forceLight={true}
+        />
         <div className="absolute inset-0 z-10 bg-gradient-to-b from-black/20 via-transparent to-black/45 pointer-events-none" />
 
         {/* Top floating header */}

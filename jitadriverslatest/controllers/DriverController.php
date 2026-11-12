@@ -247,7 +247,7 @@ class DriverController extends BaseController
         if ($current && $current['id'] !== $bookingId) {
             $isStale = !empty($current['created_at']) && (strtotime($current['created_at']) < (time() - 1800));
             if ($isStale || Env::get('APP_ENV') !== 'production') {
-                $this->driverModel->updateRideStatus($driverId, $current['id'], 'COMPLETED');
+                $this->driverModel->updateRideStatus($driverId, $current['id'], 'COMPLETED', null, array('skip_whatsapp' => true));
             } else {
                 Response::error('You already have an active ride (' . $current['id'] . '). Complete it before accepting another.', 409);
             }

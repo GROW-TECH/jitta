@@ -10,6 +10,7 @@
 require_once __DIR__ . '/BaseModel.php';
 require_once dirname(__DIR__) . '/config/env.php';
 require_once dirname(__DIR__) . '/utils/Security.php';
+require_once dirname(__DIR__) . '/services/WhatsAppService.php';
 
 class DriverModel extends BaseModel
 {
@@ -1079,6 +1080,7 @@ class DriverModel extends BaseModel
             );
 
             $this->commit();
+            WhatsAppService::notifyBookingEvent($bookingId, 'ACCEPTED');
             return $this->getCurrentRide($driverId);
         } catch (Exception $e) {
             $this->rollBack();
@@ -1262,6 +1264,9 @@ class DriverModel extends BaseModel
 
             // Notify customer
             $this->safeInsertNotification($booking['customer_id'], 'CUSTOMER', 'Driver En Route', 'Your driver is on the way to pick you up.', 'RIDE', array('booking_id' => $bookingId, 'status' => 'EN_ROUTE'));
+            if (empty($extra['skip_whatsapp'])) {
+                WhatsAppService::notifyBookingEvent($bookingId, 'ACCEPTED');
+            }
 
             return $this->getCurrentRide($driverId);
         }
@@ -1297,6 +1302,9 @@ class DriverModel extends BaseModel
             // Notify customer
             $startOtp = isset($booking['start_otp']) ? $booking['start_otp'] : (isset($booking['otp']) ? $booking['otp'] : '4821');
             $this->safeInsertNotification($booking['customer_id'], 'CUSTOMER', 'Driver Arrived', "Your driver has arrived at the pickup location. Share OTP {$startOtp} to start trip.", 'RIDE', array('booking_id' => $bookingId, 'status' => 'ARRIVED', 'otp' => $startOtp));
+            if (empty($extra['skip_whatsapp'])) {
+                WhatsAppService::notifyBookingEvent($bookingId, 'ARRIVED');
+            }
 
             return $this->getCurrentRide($driverId);
         }
@@ -1357,6 +1365,9 @@ class DriverModel extends BaseModel
 
             // Notify customer
             $this->safeInsertNotification($booking['customer_id'], 'CUSTOMER', 'Trip Started', 'Your ride is in progress. Have a safe journey!', 'RIDE', array('booking_id' => $bookingId, 'status' => 'IN_PROGRESS'));
+            if (empty($extra['skip_whatsapp'])) {
+                WhatsAppService::notifyBookingEvent($bookingId, 'STARTED');
+            }
 
             return $this->getCurrentRide($driverId);
         }
@@ -1530,6 +1541,9 @@ class DriverModel extends BaseModel
                 $this->safeInsertNotification($booking['customer_id'], 'CUSTOMER', 'Ride Completed', "You have arrived at your destination. Total fare: ₹{$totalFare}. Please rate your driver.", 'RIDE', array('booking_id' => $bookingId, 'total_fare' => $totalFare, 'payment_method' => $payMethod));
 
                 $this->commit();
+                if (empty($extra['skip_whatsapp'])) {
+                    WhatsAppService::notifyBookingEvent($bookingId, 'COMPLETED');
+                }
 
                 return array(
                     'booking_id'      => $bookingId,

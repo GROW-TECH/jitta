@@ -1444,6 +1444,8 @@ class BookingModel extends BaseModel
             }
 
             $this->commit();
+            require_once dirname(__DIR__) . '/services/WhatsAppService.php';
+            WhatsAppService::notifyBookingEvent($bookingId, 'CANCELLED', array('reason' => $reasonClean));
 
             return array(
                 'booking_id'       => $bookingId,
